@@ -250,6 +250,8 @@ input,textarea{font-family:inherit}
   background:linear-gradient(180deg,#fff,var(--ink-2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
 .welcome p{color:var(--ink-2);font-size:14px;margin-bottom:22px}
 .chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.chips-bar{padding:0 26px 10px;display:flex;gap:8px;flex-wrap:wrap}
+.chips-bar .chip{font-size:12px;padding:5px 11px}
 .chip{font-size:12.5px;color:var(--ink-2);padding:7px 13px;border-radius:20px;border:1px solid var(--line);
   background:var(--panel);transition:.15s}
 .chip:hover{color:var(--ink);border-color:var(--teal-dim);background:var(--panel-2)}
@@ -466,14 +468,14 @@ input,textarea{font-family:inherit}
         <div class="welcome" id="welcome">
           <div class="big">Read the image. Ask anything.</div>
           <p>A private multimodal console wired straight to your local vision-language endpoint. Attach one or more images, then discuss findings in a running conversation.</p>
-          <div class="chips">
-            <button class="chip" data-q="Describe this image and note any abnormal findings.">Describe findings</button>
-            <button class="chip" data-q="What differential diagnoses would you consider from this image?">Differentials</button>
-            <button class="chip" data-q="Identify anatomical structures visible here.">Identify anatomy</button>
-          </div>
         </div>
       </div>
 <div class="composer-wrap">
+        <div class="chips-bar">
+          <button class="chip" data-q="Describe this image and note any abnormal findings.">Describe findings</button>
+          <button class="chip" data-q="What differential diagnoses would you consider from this image?">Differentials</button>
+          <button class="chip" data-q="Identify anatomical structures visible here.">Identify anatomy</button>
+        </div>
         <div class="composer" id="composer">
           <textarea id="input" rows="1" placeholder="Ask about the image…"></textarea>
           <div class="comp-btns">
@@ -1534,13 +1536,7 @@ $("btnNewSession").onclick=()=>{
     <div class="welcome" id="welcome">
       <div class="big">Read the image. Ask anything.</div>
       <p>A private multimodal console wired straight to your local vision-language endpoint. Attach one or more images, then discuss findings in a running conversation.</p>
-      <div class="chips">
-        <button class="chip" data-q="Describe this image and note any abnormal findings.">Describe findings</button>
-        <button class="chip" data-q="What differential diagnoses would you consider from this image?">Differentials</button>
-        <button class="chip" data-q="Identify anatomical structures visible here.">Identify anatomy</button>
-      </div>
     </div>`;
-  document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{input.value=c.dataset.q;input.dispatchEvent(new Event("input"));input.focus();});
   $("connBannerBtn").onclick=openDrawer;
   updateConnBanner();
   toast("New session started","info");
@@ -1636,7 +1632,7 @@ if(cfg.url) startHeartbeat();
   chip.className="chip";
   chip.textContent=`↩ Restore: "${saved.title}"`;
   chip.onclick=()=>{doRestoreSession(saved);chip.remove();};
-  document.querySelector(".chips")?.appendChild(chip);
+  document.querySelector(".chips-bar")?.appendChild(chip);
 })();
 </script>
 </body>
