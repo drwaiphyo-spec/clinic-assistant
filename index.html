@@ -1,0 +1,1643 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VisionPro Medical</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;600;700&family=Inter:wght@400;450;500;600&family=JetBrains+Mono:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bg:#0C1114; --bg-2:#090D0F; --panel:#141C20; --panel-2:#19232A;
+  --line:#252F36; --line-2:#374349;
+  --ink:#ECF2F1; --ink-2:#9AAAAD; --ink-3:#7A8B8F;
+  /* teal = ready / confirmed (like an AF lock) */
+  --teal:#3FD1BE; --teal-dim:#286C63; --teal-ghost:rgba(63,209,190,.13);
+  /* brass = actively processing (lens/aperture metal) */
+  --brass:#E0A94C; --brass-dim:#7A5B2C; --brass-ghost:rgba(224,169,76,.13);
+  /* clay = error / unreachable */
+  --clay:#DD7A5D; --clay-ghost:rgba(221,122,93,.13);
+  --radius:14px; --radius-sm:9px;
+  --mono:'JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,monospace;
+  --disp:'Space Grotesk',ui-sans-serif,system-ui,sans-serif;
+  --body:'Inter',ui-sans-serif,system-ui,-apple-system,sans-serif;
+  --shadow:0 24px 60px -24px rgba(0,0,0,.7);
+  --focus-ring:0 0 0 3px rgba(63,209,190,.35);
+}
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:
+    radial-gradient(1200px 700px at 82% -8%, rgba(72,198,184,.06), transparent 60%),
+    radial-gradient(900px 600px at -6% 110%, rgba(228,166,76,.045), transparent 55%),
+    var(--bg);
+  color:var(--ink); font-family:var(--body); font-size:15px; line-height:1.55;
+  -webkit-font-smoothing:antialiased; overflow:hidden;
+}
+::selection{background:var(--teal-ghost);color:#fff}
+button{font-family:inherit;cursor:pointer;border:none;background:none;color:inherit}
+input,textarea{font-family:inherit}
+.mono{font-family:var(--mono)}
+:focus{outline:none}
+:focus-visible{outline:2px solid var(--teal);outline-offset:2px;border-radius:4px}
+.composer:focus-within,.field input:focus-visible,.field textarea:focus-visible{outline:none}
+
+/* ---------- shell ---------- */
+.app{display:flex;flex-direction:column;height:100vh}
+.topbar{
+  display:flex;align-items:center;gap:16px;padding:0 20px;height:56px;
+  border-bottom:1px solid var(--line);background:linear-gradient(180deg,rgba(26,38,43,.5),transparent);
+  flex-shrink:0;
+}
+.brand{display:flex;align-items:center;gap:11px;font-family:var(--disp);font-weight:600;letter-spacing:.02em}
+.brand .glyph{
+  width:26px;height:26px;border-radius:7px;display:grid;place-items:center;flex-shrink:0;
+  background:linear-gradient(145deg,var(--panel-2),var(--panel));border:1px solid var(--line-2);
+  position:relative;
+}
+.brand .glyph::before{content:"";width:11px;height:11px;border-radius:50%;
+  background:radial-gradient(circle at 35% 30%, var(--teal), var(--teal-dim));
+  box-shadow:0 0 10px rgba(72,198,184,.5)}
+.brand b{font-size:15px;display:flex;align-items:center;gap:6px}
+.brand span{color:var(--ink-3);font-weight:400}
+.pro-badge{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.04em;
+  color:var(--teal);background:var(--teal-ghost);border:1px solid var(--teal-dim);
+  padding:2px 5px;border-radius:5px;line-height:1.2}
+.topbar .status{margin-left:auto;display:flex;align-items:center;gap:18px}
+.readout{font-family:var(--mono);font-size:11.5px;color:var(--ink-2);display:flex;align-items:center;gap:7px}
+.readout .k{color:var(--ink-3)}
+.dot{width:7px;height:7px;border-radius:50%;background:var(--ink-3);flex-shrink:0}
+.dot.on{background:var(--teal);box-shadow:0 0 8px var(--teal)}
+.dot.warn{background:var(--brass);box-shadow:0 0 8px var(--brass)}
+.dot.err{background:var(--clay)}
+.icon-btn{
+  width:34px;height:34px;border-radius:9px;border:1px solid var(--line);
+  display:grid;place-items:center;color:var(--ink-2);transition:.16s;background:var(--panel)
+}
+.icon-btn:hover{color:var(--ink);border-color:var(--line-2);background:var(--panel-2)}
+.icon-btn svg{width:17px;height:17px}
+/* ---------- workspace ---------- */
+.work{flex:1;display:grid;grid-template-columns:minmax(340px,42%) 1fr;min-height:0}
+.viewport-col{border-right:1px solid var(--line);display:flex;flex-direction:column;min-height:0;background:var(--bg-2)}
+.chat-col{display:flex;flex-direction:column;min-height:0}
+
+/* ---- viewport (the signature) ---- */
+.vp-head{padding:14px 18px 10px;display:flex;align-items:center;justify-content:space-between}
+.vp-title{font-family:var(--mono);font-size:11px;letter-spacing:.16em;color:var(--ink-3);text-transform:uppercase}
+.vp-count{font-family:var(--mono);font-size:11px;color:var(--teal)}
+.stage{
+  flex:1;margin:0 18px;border:1px solid var(--line);border-radius:var(--radius);
+  background:
+    linear-gradient(var(--line) 1px,transparent 1px) 0 0/100% 34px,
+    linear-gradient(90deg,var(--line) 1px,transparent 1px) 0 0/34px 100%,
+    radial-gradient(120% 120% at 50% 0%, #10171A, #0A0E10);
+  background-blend-mode:soft-light,soft-light,normal;
+  position:relative;overflow:hidden;display:grid;place-items:center;min-height:0;
+}
+.stage.drag{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal),0 0 40px -10px var(--teal-ghost)}
+.stage-img{max-width:100%;max-height:100%;object-fit:contain;display:block;
+  filter:contrast(1.02);position:relative;z-index:1}
+.reg{position:absolute;font-family:var(--mono);font-size:10px;color:var(--ink-3);opacity:.75;z-index:3;pointer-events:none;letter-spacing:.08em}
+.reg.tr{top:14px;right:16px}
+.reg.bl{bottom:14px;left:16px}
+
+/* ---- autofocus reticle: signature element ----
+   idle = locked teal bracket around the image; reading = brass, pulsing (camera hunting focus) */
+.reticle{position:absolute;inset:11%;z-index:3;pointer-events:none;opacity:0;transition:opacity .25s}
+.stage.has-img .reticle{opacity:1}
+.rcorner{position:absolute;width:22px;height:22px;border:2px solid var(--teal);
+  filter:drop-shadow(0 0 6px rgba(63,209,190,.35));transition:border-color .3s}
+.rcorner.tl{top:0;left:0;border-right:none;border-bottom:none;border-top-left-radius:4px}
+.rcorner.tr{top:0;right:0;border-left:none;border-bottom:none;border-top-right-radius:4px}
+.rcorner.bl{bottom:0;left:0;border-right:none;border-top:none;border-bottom-left-radius:4px}
+.rcorner.br{bottom:0;right:0;border-left:none;border-top:none;border-bottom-right-radius:4px}
+.stage.reading .rcorner{border-color:var(--brass);filter:drop-shadow(0 0 8px rgba(224,169,76,.45));
+  animation:hunt 1.1s ease-in-out infinite}
+.stage.reading .rcorner.tl,.stage.reading .rcorner.br{animation-delay:0s}
+.stage.reading .rcorner.tr,.stage.reading .rcorner.bl{animation-delay:.15s}
+@keyframes hunt{0%,100%{transform:scale(1)}50%{transform:scale(.9)}}
+.rlabel{position:absolute;top:-24px;left:0;font-family:var(--mono);font-size:10px;letter-spacing:.12em;
+  color:var(--teal);opacity:0;transition:opacity .2s,color .2s}
+.stage.has-img .rlabel{opacity:.85}
+.stage.reading .rlabel{color:var(--brass)}
+.empty{display:grid;place-items:center;text-align:center;gap:0;padding:30px;z-index:1;color:var(--ink-3)}
+.empty .ring{width:44px;height:44px;border-radius:50%;border:1.5px dashed var(--line-2);
+  display:grid;place-items:center;margin:0 auto 16px;color:var(--ink-2)}
+.empty .ring svg{width:20px;height:20px}
+.empty h3{font-family:var(--disp);font-weight:500;font-size:15px;color:var(--ink-2);text-align:center;margin:0}
+/* connection banner */
+.conn-banner{display:none;align-items:center;gap:12px;padding:11px 16px;margin:0 0 4px;
+  background:var(--brass-ghost);border:1px solid rgba(224,169,76,.3);border-radius:11px}
+.conn-banner.show{display:flex}
+.conn-banner.err{background:var(--clay-ghost);border-color:rgba(221,122,93,.35)}
+.conn-banner .ic{width:16px;height:16px;color:var(--brass);flex-shrink:0}
+.conn-banner.err .ic{color:var(--clay)}
+.conn-banner .txt{font-size:12.5px;color:var(--ink-2);flex:1;line-height:1.4}
+.conn-banner .txt b{color:var(--ink);font-weight:500}
+.conn-banner button{font-family:var(--mono);font-size:11px;letter-spacing:.04em;color:var(--ink);
+  background:var(--panel-2);border:1px solid var(--line-2);padding:6px 12px;border-radius:7px;flex-shrink:0;transition:.15s}
+.conn-banner button:hover{border-color:var(--teal-dim);color:var(--teal)}
+
+/* ---- series scrubber (CT/MRI multi-slice) ---- */
+.seriesbar{display:none;margin:10px 18px 0;padding:10px 12px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius-sm)}
+.seriesbar.show{display:block}
+.seriesbar-row{display:flex;align-items:center;gap:9px}
+.seriesbar-row+.seriesbar-row{margin-top:9px}
+.seriesbar .lbl{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);letter-spacing:.06em;flex-shrink:0}
+.seriesbar input[type=range]{flex:1;accent-color:var(--teal);height:4px}
+.stepbtn{width:26px;height:26px;border-radius:7px;border:1px solid var(--line-2);color:var(--ink-2);
+  display:grid;place-items:center;flex-shrink:0;transition:.14s}
+.stepbtn:hover{color:var(--ink);background:var(--panel-2)}
+.slicecount{font-family:var(--mono);font-size:11px;color:var(--teal);flex-shrink:0;min-width:64px;text-align:right}
+.btn-sm{font-family:var(--mono);font-size:11px;padding:6px 11px;border-radius:7px;flex-shrink:0;transition:.14s;
+  background:var(--teal-ghost);color:var(--teal);border:1px solid var(--teal-dim)}
+.btn-sm:hover{filter:brightness(1.15)}
+.btn-sm.ghost{background:none;color:var(--ink-2);border:1px solid var(--line-2)}
+.btn-sm.ghost:hover{color:var(--ink);border-color:var(--ink-3)}
+.seriesbar .spacer{flex:1}
+.icon-btn-sm{width:26px;height:26px;border-radius:7px;color:var(--ink-3);display:grid;place-items:center;flex-shrink:0;transition:.14s}
+.icon-btn-sm:hover{color:var(--clay);background:var(--panel-2)}
+.icon-btn-sm svg,.stepbtn svg{width:14px;height:14px}
+/* ---- window/level panel ---- */
+.wlpanel{display:none;margin:10px 18px 0;padding:11px 12px 12px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius-sm)}
+.wlpanel.show{display:block}
+.wlpanel-head{display:flex;align-items:center;justify-content:space-between;margin-bottom:9px}
+.wlpanel-head .t{font-family:var(--mono);font-size:10.5px;letter-spacing:.12em;text-transform:uppercase;color:var(--ink-3)}
+.wlpanel-head .readout{font-family:var(--mono);font-size:10.5px;color:var(--brass)}
+.wl-presets{display:flex;gap:6px;flex-wrap:wrap;margin-bottom:10px}
+.wl-chip{font-family:var(--mono);font-size:10.5px;padding:5px 10px;border-radius:20px;color:var(--ink-2);
+  border:1px solid var(--line-2);transition:.14s}
+.wl-chip:hover{color:var(--ink);border-color:var(--brass-dim);background:var(--brass-ghost)}
+.wl-chip.sel{color:var(--brass);border-color:var(--brass-dim);background:var(--brass-ghost)}
+.wl-row{display:flex;align-items:center;gap:9px;margin-bottom:7px}
+.wl-row label{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);width:46px;flex-shrink:0}
+.wl-row input[type=range]{flex:1;accent-color:var(--brass);height:4px}
+.wl-row .v{font-family:var(--mono);font-size:10.5px;color:var(--ink-2);width:48px;text-align:right;flex-shrink:0}
+.wl-actions{display:flex;gap:7px;margin-top:8px}
+.toggle-sm{font-family:var(--mono);font-size:10.5px;padding:6px 11px;border-radius:7px;border:1px solid var(--line-2);
+  color:var(--ink-2);transition:.14s}
+.toggle-sm.on{color:var(--brass);border-color:var(--brass-dim);background:var(--brass-ghost)}
+.dicom-tag{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--ink-3);
+  border:1px solid var(--line-2);border-radius:5px;padding:1px 5px;margin-left:6px}
+
+/* ---- filmstrip ---- */
+.strip{padding:12px 18px 6px;display:flex;gap:9px;overflow-x:auto;flex-wrap:wrap}
+.thumb{position:relative;width:58px;height:58px;border-radius:9px;overflow:hidden;
+  border:1px solid var(--line);flex-shrink:0;background:var(--panel);cursor:pointer;transition:.15s}
+.thumb:hover{border-color:var(--line-2)}
+.thumb.active{border-color:var(--teal);box-shadow:0 0 0 1px var(--teal)}
+.thumb img{width:100%;height:100%;object-fit:cover}
+.thumb .x{position:absolute;top:2px;right:2px;width:17px;height:17px;border-radius:5px;
+  background:rgba(10,14,16,.82);display:grid;place-items:center;opacity:0;transition:.15s}
+.thumb:hover .x{opacity:1}
+.thumb .x svg{width:11px;height:11px;color:var(--ink)}
+.thumb-add{width:58px;height:58px;border-radius:9px;border:1px dashed var(--line-2);
+  display:grid;place-items:center;color:var(--ink-3);flex-shrink:0;transition:.15s}
+.thumb-add:hover{color:var(--teal);border-color:var(--teal)}
+.strip-meta{padding:2px 18px 14px;font-family:var(--mono);font-size:10.5px;color:var(--ink-3);
+  display:flex;gap:14px;min-height:16px}
+.strip-meta .v{color:var(--ink-2)}
+/* ---- conversation ---- */
+.stream{flex:1;overflow-y:auto;padding:24px 26px 8px;display:flex;flex-direction:column;gap:22px;min-height:0}
+.stream::-webkit-scrollbar,.strip::-webkit-scrollbar{width:9px;height:9px}
+.stream::-webkit-scrollbar-thumb,.strip::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+.msg{display:flex;gap:13px;max-width:760px;animation:rise .32s ease}
+@keyframes rise{from{opacity:0;transform:translateY(7px)}to{opacity:1;transform:none}}
+.avatar{width:28px;height:28px;border-radius:8px;flex-shrink:0;display:grid;place-items:center;
+  font-family:var(--mono);font-size:11px;font-weight:600;margin-top:2px}
+.msg.user .avatar{background:var(--panel-2);border:1px solid var(--line-2);color:var(--ink-2)}
+.msg.bot .avatar{background:linear-gradient(145deg,var(--teal-dim),#1c3d3a);border:1px solid var(--teal-dim);color:var(--teal)}
+.bubble{min-width:0;flex:1}
+.who{font-family:var(--mono);font-size:10.5px;letter-spacing:.13em;text-transform:uppercase;color:var(--ink-3);margin-bottom:6px;display:flex;align-items:center;gap:9px}
+.who .t{color:var(--ink-3);opacity:.7}
+.msg-imgs{display:flex;gap:7px;flex-wrap:wrap;margin-bottom:9px}
+.msg-imgs img{width:74px;height:74px;object-fit:cover;border-radius:8px;border:1px solid var(--line-2)}
+.content{color:var(--ink);font-size:14.5px;line-height:1.62;word-wrap:break-word;overflow-wrap:anywhere}
+.msg.user .content{color:var(--ink-2)}
+.content p{margin:0 0 10px}.content p:last-child{margin:0}
+.content h1,.content h2,.content h3{font-family:var(--disp);margin:14px 0 8px;line-height:1.3}
+.content h1{font-size:19px}.content h2{font-size:16.5px}.content h3{font-size:15px;color:var(--ink)}
+.content ul,.content ol{margin:0 0 10px;padding-left:20px}
+.content li{margin:3px 0}
+.content strong{color:#fff;font-weight:600}
+.content em{color:var(--ink)}
+.content code{font-family:var(--mono);font-size:12.5px;background:var(--bg-2);border:1px solid var(--line);
+  padding:1px 5px;border-radius:5px;color:var(--teal)}
+.content pre{background:var(--bg-2);border:1px solid var(--line);border-radius:9px;padding:13px 15px;
+  overflow-x:auto;margin:0 0 10px}
+.content pre code{background:none;border:none;padding:0;color:var(--ink);font-size:12.5px;line-height:1.6}
+.content blockquote{border-left:2px solid var(--teal-dim);padding:2px 0 2px 13px;margin:0 0 10px;color:var(--ink-2)}
+.content a{color:var(--teal);text-decoration:none;border-bottom:1px solid var(--teal-dim)}
+.content table{border-collapse:collapse;margin:0 0 10px;font-size:13px;width:100%}
+.content th,.content td{border:1px solid var(--line);padding:6px 10px;text-align:left}
+.content th{background:var(--panel);font-family:var(--mono);font-size:11px;letter-spacing:.04em}
+.cursor{display:inline-block;width:8px;height:15px;background:var(--teal);vertical-align:-2px;
+  margin-left:1px;animation:blink 1s steps(2) infinite;border-radius:1px}
+@keyframes blink{50%{opacity:0}}
+.msg-tools{display:flex;gap:4px;margin-top:9px;opacity:0;transition:.15s}
+.msg:hover .msg-tools{opacity:1}
+.tool{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);padding:3px 8px;border-radius:6px;
+  border:1px solid transparent;display:flex;align-items:center;gap:5px;transition:.13s}
+.tool:hover{color:var(--ink);border-color:var(--line);background:var(--panel)}
+.tool svg{width:12px;height:12px}
+.perf{font-family:var(--mono);font-size:10px;color:var(--ink-3);margin-left:auto;align-self:center}
+/* welcome */
+.welcome{margin:auto;text-align:center;max-width:420px;padding:20px}
+.welcome .big{font-family:var(--disp);font-weight:600;font-size:26px;letter-spacing:-.01em;margin-bottom:10px;
+  background:linear-gradient(180deg,#fff,var(--ink-2));-webkit-background-clip:text;background-clip:text;-webkit-text-fill-color:transparent}
+.welcome p{color:var(--ink-2);font-size:14px;margin-bottom:22px}
+.chips{display:flex;gap:8px;flex-wrap:wrap;justify-content:center}
+.chip{font-size:12.5px;color:var(--ink-2);padding:7px 13px;border-radius:20px;border:1px solid var(--line);
+  background:var(--panel);transition:.15s}
+.chip:hover{color:var(--ink);border-color:var(--teal-dim);background:var(--panel-2)}
+
+/* ---- composer ---- */
+.composer-wrap{padding:14px 26px 16px;border-top:1px solid var(--line);flex-shrink:0}
+.composer{background:var(--panel);border:1px solid var(--line);border-radius:var(--radius);
+  padding:6px 6px 6px 16px;display:flex;align-items:flex-end;gap:8px;transition:.16s}
+.composer:focus-within{border-color:var(--teal-dim);box-shadow:0 0 0 3px var(--teal-ghost)}
+.composer textarea{flex:1;background:none;border:none;outline:none;color:var(--ink);resize:none;
+  font-size:14.5px;line-height:1.5;padding:9px 0;max-height:170px;min-height:22px}
+.composer textarea::placeholder{color:var(--ink-3)}
+.comp-btns{display:flex;align-items:center;gap:6px}
+.attach{width:38px;height:38px;border-radius:10px;color:var(--ink-2);display:grid;place-items:center;transition:.15s}
+.attach:hover{color:var(--teal);background:var(--panel-2)}
+.attach svg{width:19px;height:19px}
+.send{width:38px;height:38px;border-radius:10px;display:grid;place-items:center;transition:.16s;
+  background:var(--teal);color:#06110F;flex-shrink:0}
+.send:hover{filter:brightness(1.08)}
+.send:disabled{background:var(--panel-2);color:var(--ink-3);cursor:not-allowed}
+.send.stop{background:var(--clay);color:#fff}
+.send svg{width:18px;height:18px}
+.foot{display:flex;align-items:center;gap:14px;margin-top:9px;padding:0 4px;
+  font-family:var(--mono);font-size:10.5px;color:var(--ink-3)}
+.foot .sep{opacity:.4}
+.foot kbd{background:var(--panel-2);border:1px solid var(--line);border-radius:4px;padding:0 5px;color:var(--ink-2)}
+.foot .disc{margin-left:auto;color:var(--ink-3);opacity:.75}
+/* ---------- settings drawer ---------- */
+.scrim{position:fixed;inset:0;background:rgba(6,9,10,.6);backdrop-filter:blur(3px);opacity:0;
+  pointer-events:none;transition:.22s;z-index:40}
+.scrim.open{opacity:1;pointer-events:auto}
+.drawer{position:fixed;top:0;right:0;bottom:0;width:min(430px,100%);background:var(--panel);
+  border-left:1px solid var(--line-2);box-shadow:var(--shadow);z-index:41;
+  transform:translateX(100%);transition:transform .28s cubic-bezier(.4,0,.2,1);
+  display:flex;flex-direction:column}
+.drawer.open{transform:none}
+.drawer-head{padding:20px 22px;border-bottom:1px solid var(--line);display:flex;align-items:center;justify-content:space-between}
+.drawer-head h2{font-family:var(--disp);font-weight:600;font-size:17px}
+.drawer-head .sub{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);margin-top:2px;letter-spacing:.05em}
+.drawer-body{flex:1;overflow-y:auto;padding:20px 22px 30px}
+.field{margin-bottom:18px}
+.field label{display:block;font-family:var(--mono);font-size:10.5px;letter-spacing:.1em;text-transform:uppercase;
+  color:var(--ink-2);margin-bottom:7px}
+.field .hint{font-size:11.5px;color:var(--ink-3);margin-top:6px;line-height:1.45}
+.field input[type=text],.field input[type=password],.field input[type=number],.field textarea,.field select{
+  width:100%;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius-sm);
+  padding:10px 12px;color:var(--ink);font-size:13.5px;outline:none;transition:.15s}
+.field input:focus,.field textarea:focus,.field select:focus{border-color:var(--teal-dim);box-shadow:0 0 0 3px var(--teal-ghost)}
+.field input.invalid{border-color:var(--clay)}
+.field input.invalid:focus{box-shadow:0 0 0 3px var(--clay-ghost)}
+.field .err-msg{display:none;font-size:11.5px;color:var(--clay);margin-top:6px}
+.field .err-msg.show{display:block}
+.field textarea{resize:vertical;min-height:70px;line-height:1.5}
+.field.mono input{font-family:var(--mono);font-size:12.5px}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+.seg{display:flex;background:var(--bg-2);border:1px solid var(--line);border-radius:var(--radius-sm);padding:3px;gap:3px}
+.seg button{flex:1;padding:8px;border-radius:6px;font-family:var(--mono);font-size:11.5px;color:var(--ink-2);transition:.14s}
+.seg button.sel{background:var(--panel-2);color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal-dim)}
+.slider-row{display:flex;align-items:center;gap:12px}
+.slider-row input[type=range]{flex:1;accent-color:var(--teal);height:4px}
+.slider-row .val{font-family:var(--mono);font-size:12px;color:var(--teal);width:38px;text-align:right}
+.drawer-foot{padding:16px 22px;border-top:1px solid var(--line);display:flex;gap:10px}
+.btn{flex:1;padding:11px;border-radius:10px;font-weight:500;font-size:13.5px;transition:.15s;
+  display:flex;align-items:center;justify-content:center;gap:8px}
+.btn-ghost{border:1px solid var(--line-2);color:var(--ink-2)}
+.btn-ghost:hover{color:var(--ink);border-color:var(--ink-3)}
+.btn-primary{background:var(--teal);color:#06110F;font-weight:600}
+.btn-primary:hover{filter:brightness(1.08)}
+.btn svg{width:15px;height:15px}
+.test-result{font-family:var(--mono);font-size:11.5px;margin-top:10px;padding:9px 12px;border-radius:8px;
+  display:none;align-items:center;gap:8px;line-height:1.4}
+.test-result.show{display:flex}
+.test-result.ok{background:var(--teal-ghost);color:var(--teal);border:1px solid var(--teal-dim)}
+.test-result.bad{background:rgba(210,118,91,.1);color:var(--clay);border:1px solid rgba(210,118,91,.3)}
+.test-result.run{background:var(--brass-ghost);color:var(--brass);border:1px solid rgba(224,169,76,.35)}
+.divider{height:1px;background:var(--line);margin:22px 0}
+.divider-lbl{font-family:var(--mono);font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--ink-3);margin:-10px 0 16px}
+/* toast */
+.toasts{position:fixed;bottom:22px;left:50%;transform:translateX(-50%);z-index:60;display:flex;
+  flex-direction:column;gap:9px;align-items:center;pointer-events:none}
+.toast{background:var(--panel-2);border:1px solid var(--line-2);border-radius:11px;padding:11px 16px;
+  font-size:13px;box-shadow:var(--shadow);display:flex;align-items:center;gap:10px;max-width:440px;
+  animation:toastIn .25s ease;pointer-events:auto}
+.toast.err{border-color:rgba(210,118,91,.4)}
+.toast .ic{width:16px;height:16px;flex-shrink:0;color:var(--clay)}
+.toast.info .ic{color:var(--teal)}
+@keyframes toastIn{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+
+/* lightbox modal */
+.lb{position:fixed;inset:0;background:rgba(4,6,7,.92);z-index:70;display:none;place-items:center;padding:40px;cursor:zoom-out}
+.lb.open{display:grid}
+.lb img{max-width:100%;max-height:100%;object-fit:contain;border-radius:8px}
+
+@media(max-width:900px){
+  body{overflow:auto}
+  .app{height:auto;min-height:100vh}
+  .work{grid-template-columns:1fr;display:flex;flex-direction:column;height:auto}
+  .viewport-col{border-right:none;border-bottom:1px solid var(--line)}
+  .stage{min-height:240px}
+  .chat-col{min-height:64vh}
+  .foot .disc{display:none}
+  .drawer{width:100%}
+}
+@media(prefers-reduced-motion:reduce){
+  *{animation-duration:.001ms!important;transition-duration:.08s!important}
+  .stage.reading .rcorner{animation:none;transform:scale(.94)}
+}
+/* ---------- session history panel ---------- */
+.sess-item{padding:11px 14px;border-radius:10px;border:1px solid var(--line);cursor:pointer;
+  transition:.14s;display:flex;flex-direction:column;gap:4px;margin-bottom:8px}
+.sess-item:hover{border-color:var(--line-2);background:var(--panel-2)}
+.sess-item .s-title{font-size:13px;color:var(--ink);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.sess-item .s-meta{font-family:var(--mono);font-size:10.5px;color:var(--ink-3);display:flex;align-items:center;gap:10px}
+.sess-item .s-del{margin-left:auto;color:var(--clay);opacity:0;transition:.13s;padding:2px 7px;
+  border-radius:5px;font-size:11.5px;border:1px solid transparent}
+.sess-item:hover .s-del{opacity:1}
+.sess-item .s-del:hover{background:var(--clay-ghost);border-color:rgba(221,122,93,.3)}
+.hist-empty{text-align:center;padding:36px 20px;color:var(--ink-3);font-size:13.5px;line-height:1.6}
+</style>
+</head>
+<body>
+<div class="app">
+  <!-- top bar -->
+  <header class="topbar">
+    <div class="brand">
+      <div class="glyph"></div>
+      <b>Vision<span class="pro-badge">Pro</span></b><span>Medical</span>
+    </div>
+    <div class="status">
+      <div class="readout"><span class="dot" id="hbDot"></span><span id="hbState">not configured</span></div>
+      <button class="icon-btn" id="btnNewSession" title="New session" aria-label="New session">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
+      </button>
+      <button class="icon-btn" id="btnExport" title="Export conversation as Markdown" aria-label="Export conversation">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+      </button>
+      <button class="icon-btn" id="btnHistory" title="Session history" aria-label="Session history">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+      </button>
+      <button class="icon-btn" id="btnSettings" title="Settings (⌘K)" aria-label="Settings">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-4 0v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1 0-4h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 4 0v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
+      </button>
+    </div>
+  </header>
+
+  <div class="work">
+    <!-- viewport -->
+    <section class="viewport-col">
+      <div class="vp-head">
+        <div class="vp-title">Viewport</div>
+        <div class="vp-count" id="vpCount"></div>
+      </div>
+      <div class="stage" id="stage">
+        <span class="reg tr" id="regDim"></span>
+        <span class="reg bl" id="regName"></span>
+        <div class="reticle" id="reticle">
+          <span class="rlabel" id="reticleLabel">READY</span>
+          <span class="rcorner tl"></span><span class="rcorner tr"></span>
+          <span class="rcorner bl"></span><span class="rcorner br"></span>
+        </div>
+        <div class="empty" id="stageEmpty">
+          <div class="ring">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6"><rect x="3" y="3" width="18" height="18" rx="2"/><circle cx="8.5" cy="8.5" r="1.6"/><path d="m21 15-4.5-4.5L6 21"/></svg>
+          </div>
+          <h3>No image loaded</h3>
+        </div>
+        <img class="stage-img" id="stageImg" style="display:none" alt="">
+      </div>
+<div class="seriesbar" id="seriesBar">
+        <div class="seriesbar-row">
+          <span class="lbl" id="seriesLbl">SERIES</span>
+          <button class="stepbtn" id="slicePrev" aria-label="Previous slice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m15 18-6-6 6-6"/></svg></button>
+          <input type="range" id="sliceSlider" min="0" max="0" value="0">
+          <button class="stepbtn" id="sliceNext" aria-label="Next slice"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m9 18 6-6-6-6"/></svg></button>
+          <span class="slicecount" id="sliceCount">1 / 1</span>
+        </div>
+        <div class="seriesbar-row">
+          <button class="btn-sm" id="btnAddSlice">+ Add this slice</button>
+          <button class="btn-sm ghost" id="btnAddSample">+ Sample 5 slices</button>
+          <span class="spacer"></span>
+          <button class="icon-btn-sm" id="btnCloseSeries" title="Close series" aria-label="Close series">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
+          </button>
+        </div>
+      </div>
+
+      <div class="wlpanel" id="wlPanel">
+        <div class="wlpanel-head">
+          <span class="t">Window / Level</span>
+          <span class="readout" id="wlReadout">WW — · WC —</span>
+        </div>
+        <div class="wl-presets" id="wlPresets"></div>
+        <div class="wl-row"><label>Width</label><input type="range" id="wwSlider" min="1" max="4000" value="400"><span class="v" id="wwVal">400</span></div>
+        <div class="wl-row"><label>Center</label><input type="range" id="wcSlider" min="-1000" max="3000" value="40"><span class="v" id="wcVal">40</span></div>
+        <div class="wl-actions">
+          <button class="toggle-sm" id="btnInvert">Invert</button>
+          <button class="btn-sm ghost" id="btnResetWL">Reset to file defaults</button>
+        </div>
+      </div>
+
+      <div class="strip" id="strip"></div>
+      <div class="strip-meta" id="stripMeta"></div>
+    </section>
+
+    <!-- conversation -->
+    <section class="chat-col">
+      <div class="stream" id="stream">
+        <div class="conn-banner" id="connBanner">
+          <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+          <div class="txt" id="connBannerTxt"><b>No endpoint connected.</b> VisionPro can't reach a model yet.</div>
+          <button id="connBannerBtn">Connect</button>
+        </div>
+        <div class="welcome" id="welcome">
+          <div class="big">Read the image. Ask anything.</div>
+          <p>A private multimodal console wired straight to your local vision-language endpoint. Attach one or more images, then discuss findings in a running conversation.</p>
+          <div class="chips">
+            <button class="chip" data-q="Describe this image and note any abnormal findings.">Describe findings</button>
+            <button class="chip" data-q="What differential diagnoses would you consider from this image?">Differentials</button>
+            <button class="chip" data-q="Identify anatomical structures visible here.">Identify anatomy</button>
+          </div>
+        </div>
+      </div>
+<div class="composer-wrap">
+        <div class="composer" id="composer">
+          <textarea id="input" rows="1" placeholder="Ask about the image…"></textarea>
+          <div class="comp-btns">
+            <button class="attach" id="btnAttach" title="Attach image" aria-label="Attach image">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <button class="send" id="btnSend" disabled aria-label="Send">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
+            </button>
+          </div>
+        </div>
+        <div class="foot">
+          <span><kbd>↵</kbd> send</span><span class="sep">·</span>
+          <span><kbd>⇧↵</kbd> newline</span><span class="sep">·</span>
+          <span><kbd>⌘V</kbd> paste image</span>
+          <span class="disc">Clinical decision support — verify against your own judgment.</span>
+        </div>
+      </div>
+    </section>
+  </div>
+</div>
+
+<input type="file" id="fileInput" accept="image/*,.dcm,.dicom,application/dicom,.tif,.tiff" multiple hidden>
+
+<!-- settings -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Settings">
+  <div class="drawer-head">
+    <div>
+      <h2>Endpoint</h2>
+      <div class="sub" id="drawerHost">—</div>
+    </div>
+    <button class="icon-btn" id="btnCloseDrawer" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body">
+    <div class="field">
+      <label>API format</label>
+      <div class="seg" id="segFormat">
+        <button data-fmt="openai" class="sel">llama.cpp / OpenAI-style</button>
+        <button data-fmt="ollama">Ollama native</button>
+      </div>
+      <div class="hint" id="fmtHint">llama-server's built-in <code>/v1/chat/completions</code>. Also works for vLLM, LM Studio, TGI. Images sent as base64 data-URLs.</div>
+    </div>
+
+    <div class="field mono">
+      <label>Base URL</label>
+      <input type="text" id="cfgUrl" placeholder="http://localhost:8080/v1" spellcheck="false">
+      <div class="err-msg" id="urlErr">Enter a valid URL starting with http:// or https://</div>
+      <div class="hint">The server root. The chat path is appended automatically — no need to add it.</div>
+    </div>
+
+    <div class="field mono">
+      <label>Model</label>
+      <input type="text" id="cfgModel" placeholder="e.g. medgemma-4b-it, llava-1.6" spellcheck="false">
+      <div class="hint">llama-server mostly ignores this and serves whichever gguf it was launched with — but some builds validate it, so keep it matching your <code>--model</code> filename or alias.</div>
+    </div>
+
+    <div class="field mono">
+      <label>API key <span style="opacity:.5">optional</span></label>
+      <input type="password" id="cfgKey" placeholder="leave empty for local servers" spellcheck="false">
+    </div>
+
+    <div class="divider"></div>
+    <div class="divider-lbl">Generation</div>
+
+    <div class="field">
+      <label>System prompt</label>
+      <textarea id="cfgSystem" placeholder="e.g. You are a medical imaging assistant supporting a physician…"></textarea>
+    </div>
+
+    <div class="row2">
+      <div class="field">
+        <label>Temperature</label>
+        <div class="slider-row">
+          <input type="range" id="cfgTemp" min="0" max="1" step="0.05" value="0.2">
+          <span class="val" id="tempVal">0.20</span>
+        </div>
+      </div>
+      <div class="field">
+        <label>Max tokens</label>
+        <input type="number" id="cfgMaxTok" min="64" max="8192" step="64" value="1024">
+      </div>
+    </div>
+<div class="field">
+      <label>Streaming</label>
+      <div class="seg" id="segStream">
+        <button data-stream="1" class="sel">On</button>
+        <button data-stream="0">Off</button>
+      </div>
+    </div>
+
+    <button class="btn btn-ghost" id="btnTest" style="width:100%">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M22 12h-4l-3 9L9 3l-3 9H2"/></svg>
+      Test connection
+    </button>
+    <div class="test-result" id="testResult"></div>
+
+    <div class="divider"></div>
+    <div class="hint" style="font-size:11.5px">
+      <b style="color:var(--ink-2)">Formats:</b> JPEG/PNG/WebP/GIF/BMP, DICOM (<code>.dcm</code>, including
+      extensionless PACS exports — auto-detected by file signature), and TIFF. DICOM supports uncompressed
+      transfer syntaxes only; JPEG2000/JPEG-LS/RLE-compressed files will show an error asking you to re-export.
+      Multi-slice CT/MRI (either one multi-frame file or many single-frame files dropped together) opens a
+      slice scrubber with window/level controls — pick the slices worth sending rather than attaching an
+      entire study.
+    </div>
+    <div class="hint" style="font-size:11.5px">
+      <b style="color:var(--ink-2)">llama.cpp:</b> run <code>llama-server</code> with a vision-capable gguf and
+      its projector, e.g. <code>--model model.gguf --mmproj mmproj.gguf</code>. Without <code>--mmproj</code>
+      the server will accept requests but ignore any images. Default port is <code>8080</code>; CORS is open by
+      default so no extra flags are usually needed. If you set <code>--api-key</code> on the server, enter it above.
+    </div>
+  </div>
+  <div class="drawer-foot">
+    <button class="btn btn-ghost" id="btnReset">Reset</button>
+    <button class="btn btn-primary" id="btnSave">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9"><path d="M20 6 9 17l-5-5"/></svg>
+      Save
+    </button>
+  </div>
+</aside>
+
+<div class="scrim" id="histScrim"></div>
+<aside class="drawer" id="histDrawer" aria-label="Session history">
+  <div class="drawer-head">
+    <div>
+      <h2>Session History</h2>
+      <div class="sub" id="histCount">—</div>
+    </div>
+    <button class="icon-btn" id="btnCloseHist" aria-label="Close">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M18 6 6 18M6 6l12 12"/></svg>
+    </button>
+  </div>
+  <div class="drawer-body" id="histBody"></div>
+</aside>
+
+<div class="toasts" id="toasts"></div>
+<div class="lb" id="lightbox"><img id="lbImg" alt=""></div>
+
+<!-- DICOM tag parser (cornerstonejs, MIT) — parsing only, rendering is hand-rolled below -->
+<script src="https://unpkg.com/dicom-parser"></script>
+<!-- TIFF decoder (photopea/UTIF, MIT) — for pathology/histology TIFF exports -->
+<script src="https://unpkg.com/utif/UTIF.js"></script>
+
+<script>
+"use strict";
+/* ---------------- state ---------------- */
+const DEFAULTS={
+  fmt:"openai", url:"http://127.0.0.1:8090/api", model:"medgemma-1.5-4b-it-Q4_K_M.gguf",
+  key:"", system:"You are a medical multimodal assistant supporting a qualified physician. Describe images precisely, use correct clinical terminology, state uncertainty, and note that findings require clinician confirmation.",
+  temp:0.2, maxTok:1024, stream:true
+};
+const WARN_PAYLOAD_BYTES = 8 * 1024 * 1024; // warn above 8 MB encoded
+const HB_INTERVAL = 30000;
+let cfg=loadCfg();
+let attachments=[];      // {id,name,mime,dataUrl,w,h,bytes}
+let activeThumb=null;
+let history=[];          // {role, text, images:[dataUrl]}
+let controller=null;     // AbortController
+let busy=false;
+let hbTimer=null;
+let currentSessionId=null;
+
+/* ---------------- persistence ---------------- */
+function loadCfg(){
+  try{
+    const raw=localStorage.getItem("visionpro.cfg")||localStorage.getItem("medgemma.cfg")||"null";
+    const s=JSON.parse(raw);
+    return s?{...DEFAULTS,...s}:{...DEFAULTS};
+  }catch(e){return {...DEFAULTS};}
+}
+function saveCfg(){try{localStorage.setItem("visionpro.cfg",JSON.stringify(cfg));}catch(e){}}
+
+/* ---------------- session persistence ---------------- */
+const MAX_SESSIONS=15;
+function sessionTitle(){
+  const first=history.find(m=>m.role==="user");
+  const t=first?.text||"";
+  return t.slice(0,60)+(t.length>60?"…":"")|| "Untitled session";
+}
+function saveCurrentSession(){
+  if(!history.length)return;
+  try{
+    if(!currentSessionId) currentSessionId=uid();
+    const entry={id:currentSessionId,title:sessionTitle(),ts:Date.now(),
+      messages:history.map(m=>({role:m.role,text:m.text}))};
+    localStorage.setItem("visionpro.session",JSON.stringify(entry));
+  }catch(e){}
+}
+function clearCurrentSession(){
+  currentSessionId=null;
+  localStorage.removeItem("visionpro.session");
+}
+function pushToSessionHistory(){
+  try{
+    const raw=localStorage.getItem("visionpro.session"); if(!raw)return;
+    const sess=JSON.parse(raw); if(!sess?.messages?.length)return;
+    const all=loadAllSessions();
+    const idx=all.findIndex(s=>s.id===sess.id);
+    if(idx>=0) all.splice(idx,1);
+    all.unshift(sess);
+    localStorage.setItem("visionpro.sessions",JSON.stringify(all.slice(0,MAX_SESSIONS)));
+  }catch(e){}
+}
+function loadAllSessions(){try{return JSON.parse(localStorage.getItem("visionpro.sessions")||"[]");}catch(e){return[];}}
+function deleteStoredSession(id){
+  try{
+    const all=loadAllSessions().filter(s=>s.id!==id);
+    localStorage.setItem("visionpro.sessions",JSON.stringify(all));
+  }catch(e){}
+}
+function loadCurrentSavedSession(){try{const r=localStorage.getItem("visionpro.session");return r?JSON.parse(r):null;}catch(e){return null;}}
+
+function doRestoreSession(sess){
+  history=sess.messages.map(m=>({role:m.role,text:m.text,images:[]}));
+  currentSessionId=sess.id;
+  stream.innerHTML="";
+  for(const m of history) addMsg(m.role,m.text,[]);
+  toast("Session restored","info");
+}
+
+/* ---------------- export ---------------- */
+function exportMarkdown(){
+  if(!history.length){toast("Nothing to export.");return;}
+  const lines=["# VisionPro Medical — Conversation Export",
+    `*${new Date().toLocaleString()}*\n---\n`];
+  for(const m of history){
+    lines.push(m.role==="user"?`**Query**\n\n${m.text}`:
+      `**VisionPro**\n\n${m.text}`);
+    lines.push("\n---\n");
+  }
+  const blob=new Blob([lines.join("\n")],{type:"text/markdown"});
+  const a=document.createElement("a");
+  a.href=URL.createObjectURL(blob);
+  a.download=`visionpro-${new Date().toISOString().slice(0,10)}.md`;
+  a.click();
+  URL.revokeObjectURL(a.href);
+}
+
+/* ---------------- dom ---------------- */
+const $=id=>document.getElementById(id);
+const stream=$("stream"), input=$("input"), stage=$("stage"), stageImg=$("stageImg"),
+      stageEmpty=$("stageEmpty"), strip=$("strip"), stripMeta=$("stripMeta"),
+      btnSend=$("btnSend");
+
+/* ---------------- heartbeat / header ---------------- */
+let lastState="idle";
+function updateHeader(state){
+  lastState=state;
+  const dot=$("hbDot"), lbl=$("hbState");
+  dot.className="dot"; 
+  if(state==="ok"){dot.classList.add("on");lbl.textContent="ready";}
+  else if(state==="busy"){dot.classList.add("warn");lbl.textContent="reading…";}
+  else if(state==="err"){dot.classList.add("err");lbl.textContent="unreachable";}
+  else{lbl.textContent = cfg.url? "configured":"not configured";}
+  updateConnBanner();
+}
+function updateConnBanner(){
+  const banner=$("connBanner"); if(!banner)return;
+  const txt=$("connBannerTxt");
+  if(!cfg.url){
+    banner.className="conn-banner show";
+    txt.innerHTML="<b>No endpoint connected.</b> VisionPro can't reach a model yet.";
+  }else if(lastState==="err"){
+    banner.className="conn-banner show err";
+    txt.innerHTML=`<b>Can't reach the endpoint.</b> ${esc(cfg.url)} didn't respond — check it's running.`;
+  }else{
+    banner.className="conn-banner";
+  }
+}
+updateHeader("idle");
+
+/* ---------------- heartbeat ---------------- */
+async function heartbeat(){
+  if(busy||!cfg.url) return;
+  const ctl=new AbortController();
+  const to=setTimeout(()=>ctl.abort(),5000);
+  try{
+    const res=await fetch(joinUrl(cfg.url,"/models"),{method:"GET",signal:ctl.signal});
+    clearTimeout(to);
+    if(!busy) updateHeader(res.status<500?"ok":"err");
+  }catch(e){
+    clearTimeout(to);
+    if(!busy) updateHeader("err");
+  }
+}
+function startHeartbeat(){
+  stopHeartbeat();
+  heartbeat();
+  hbTimer=setInterval(heartbeat,HB_INTERVAL);
+}
+function stopHeartbeat(){clearInterval(hbTimer);hbTimer=null;}
+
+/* ---------------- toasts ---------------- */
+function toast(msg,type="err"){
+  const t=document.createElement("div"); t.className="toast "+type;
+  const icon = type==="err"
+    ? '<path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/>'
+    : '<path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><path d="m22 4-10 10.01-3-3"/>';
+  t.innerHTML=`<svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8">${icon}</svg><span>${esc(msg)}</span>`;
+  $("toasts").appendChild(t);
+  setTimeout(()=>{t.style.transition="opacity .3s,transform .3s";t.style.opacity="0";t.style.transform="translateY(8px)";setTimeout(()=>t.remove(),300);},4200);
+}
+
+/* ---------------- image intake ---------------- */
+const MAX_SIDE=1600, MAX_FILES=10;
+let series=null; // {meta, frames:[{buf,meta}], index, ww, wc, invert}
+
+function loadImage(src){return new Promise((res,rej)=>{const i=new Image();i.onload=()=>res(i);i.onerror=rej;i.src=src;});}
+function readFile(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsDataURL(f);});}
+function readArrayBuffer(f){return new Promise((res,rej)=>{const r=new FileReader();r.onload=()=>res(r.result);r.onerror=rej;r.readAsArrayBuffer(f);});}
+function uid(){return crypto.randomUUID?.()||String(Math.random());}
+function clamp8(v){return v<0?0:v>255?255:v|0;}
+
+async function sniffDicom(file){
+  if(/\.(dcm|dicom)$/i.test(file.name)||file.type==="application/dicom") return true;
+  try{
+    const buf=await file.slice(0,132).arrayBuffer();
+    const b=new Uint8Array(buf);
+    return b.length===132 && b[128]===0x44&&b[129]===0x49&&b[130]===0x43&&b[131]===0x4D; // 'DICM'
+  }catch(e){return false;}
+}
+function isTiff(file){return /\.(tif|tiff)$/i.test(file.name)||file.type==="image/tiff";}
+
+/* ---------------- ingest orchestrator ---------------- */
+async function ingest(fileList){
+  const files=[...fileList];
+  if(!files.length) return;
+  const dicomFiles=[], tiffFiles=[], imgFiles=[], skipped=[];
+  for(const f of files){
+    if(await sniffDicom(f)) dicomFiles.push(f);
+    else if(isTiff(f)) tiffFiles.push(f);
+    else if(f.type.startsWith("image/")) imgFiles.push(f);
+    else skipped.push(f.name);
+  }
+  if(skipped.length) toast(`Unrecognized format: ${skipped.slice(0,3).join(", ")}${skipped.length>3?"…":""}`);
+  if(dicomFiles.length) await ingestDicom(dicomFiles);
+  if(tiffFiles.length) await ingestTiff(tiffFiles);
+  if(imgFiles.length) await ingestRaster(imgFiles);
+  renderStrip(); renderStage(); refreshSend();
+}
+async function ingestRaster(imgs){
+  for(const f of imgs){
+    if(attachments.length>=MAX_FILES){toast(`Up to ${MAX_FILES} images per turn.`);break;}
+    try{
+      const raw=await readFile(f);
+      const img=await loadImage(raw);
+      let {width:w,height:h}=img, dataUrl=raw, mime=f.type;
+      if(Math.max(w,h)>MAX_SIDE){
+        const s=MAX_SIDE/Math.max(w,h), nw=Math.round(w*s), nh=Math.round(h*s);
+        const c=document.createElement("canvas"); c.width=nw;c.height=nh;
+        c.getContext("2d").drawImage(img,0,0,nw,nh);
+        dataUrl=c.toDataURL("image/jpeg",0.92); mime="image/jpeg"; w=nw;h=nh;
+      }
+      const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
+      attachments.push({id:uid(),name:f.name,mime,dataUrl,w,h,bytes});
+    }catch(e){toast("Couldn't read "+f.name);}
+  }
+  activeThumb=attachments[attachments.length-1]?.id||activeThumb;
+}
+
+async function ingestTiff(files){
+  if(!window.UTIF){toast("TIFF support failed to load — check your internet connection.");return;}
+  for(const f of files){
+    if(attachments.length>=MAX_FILES){toast(`Up to ${MAX_FILES} images per turn.`);break;}
+    try{
+      const buf=await readArrayBuffer(f);
+      const ifds=UTIF.decode(buf);
+      if(!ifds || !ifds.length) throw new Error("empty");
+      UTIF.decodeImage(buf, ifds[0]);
+      const rgba=UTIF.toRGBA8(ifds[0]);
+      const w=ifds[0].width, h=ifds[0].height;
+      const canvas=document.createElement("canvas"); canvas.width=w; canvas.height=h;
+      canvas.getContext("2d").putImageData(new ImageData(new Uint8ClampedArray(rgba.buffer||rgba), w, h), 0, 0);
+      const {dataUrl,w:nw,h:nh}=canvasToDataUrl(canvas);
+      const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
+      attachments.push({id:uid(),name:f.name,mime:"image/png",dataUrl,w:nw,h:nh,bytes});
+      if(ifds.length>1) toast(`${f.name}: loaded page 1 of ${ifds.length} — later pages aren't included.`,"info");
+    }catch(e){toast("Couldn't decode "+f.name+" as TIFF.");}
+  }
+  activeThumb=attachments[attachments.length-1]?.id||activeThumb;
+}
+
+/* ---------------- DICOM: parse + render ---------------- */
+/* Supported: Explicit/Implicit Little Endian (uncompressed) + JPEG Baseline (1.2.840.10008.1.2.4.50) */
+const TS_NAMES={
+  '1.2.840.10008.1.2.4.51':'JPEG Extended (12-bit)',
+  '1.2.840.10008.1.2.4.57':'JPEG Lossless',
+  '1.2.840.10008.1.2.4.70':'JPEG Lossless SV1',
+  '1.2.840.10008.1.2.4.80':'JPEG-LS Lossless',
+  '1.2.840.10008.1.2.4.81':'JPEG-LS Near-lossless',
+  '1.2.840.10008.1.2.4.90':'JPEG 2000 Lossless',
+  '1.2.840.10008.1.2.4.91':'JPEG 2000',
+  '1.2.840.10008.1.2.5'   :'RLE Lossless',
+};
+function canvasToDataUrl(canvas){
+  let {width:w,height:h}=canvas;
+  if(Math.max(w,h)>MAX_SIDE){
+    const s=MAX_SIDE/Math.max(w,h), nw=Math.round(w*s), nh=Math.round(h*s);
+    const c2=document.createElement("canvas"); c2.width=nw;c2.height=nh;
+    c2.getContext("2d").drawImage(canvas,0,0,nw,nh);
+    return {dataUrl:c2.toDataURL("image/png"), w:nw, h:nh};
+  }
+  return {dataUrl:canvas.toDataURL("image/png"), w, h};
+}
+
+function dicomFrameToCanvas(frameBuf, meta, ww, wc, invert){
+  if(meta.isRgba){
+    const canvas=document.createElement("canvas"); canvas.width=meta.cols; canvas.height=meta.rows;
+    canvas.getContext("2d").putImageData(
+      new ImageData(new Uint8ClampedArray(frameBuf), meta.cols, meta.rows), 0, 0);
+    return canvas;
+  }
+  const {rows,cols,spp,bitsAllocated,pixelRepresentation,photometric,planar,slope,intercept}=meta;
+  const canvas=document.createElement("canvas"); canvas.width=cols; canvas.height=rows;
+  const ctx=canvas.getContext("2d");
+  const img=ctx.createImageData(cols,rows);
+  const n=rows*cols;
+  if(spp===1){
+    const raw = bitsAllocated===8 ? new Uint8Array(frameBuf)
+      : (pixelRepresentation===1 ? new Int16Array(frameBuf) : new Uint16Array(frameBuf));
+    const lo=wc-ww/2, range=ww||1;
+    const isM1=photometric==="MONOCHROME1";
+    for(let i=0;i<n;i++){
+      let v=raw[i]*slope+intercept;
+      let g=clamp8(((v-lo)/range)*255);
+      if(isM1!==invert) g=255-g;
+      const idx=i*4;
+      img.data[idx]=g; img.data[idx+1]=g; img.data[idx+2]=g; img.data[idx+3]=255;
+    }
+  }else{
+    const raw=new Uint8Array(frameBuf);
+    const isYbr=photometric && photometric.indexOf("YBR")===0;
+    for(let i=0;i<n;i++){
+      let r,g,b;
+      if(planar===1){ r=raw[i]; g=raw[n+i]; b=raw[2*n+i]; }
+      else{ r=raw[i*3]; g=raw[i*3+1]; b=raw[i*3+2]; }
+      if(isYbr){
+        const yv=r, cb=g-128, cr=b-128;
+        r=clamp8(yv+1.402*cr); g=clamp8(yv-0.344136*cb-0.714136*cr); b=clamp8(yv+1.772*cb);
+      }
+      const idx=i*4;
+      img.data[idx]=r; img.data[idx+1]=g; img.data[idx+2]=b; img.data[idx+3]=255;
+    }
+  }
+  ctx.putImageData(img,0,0);
+  return canvas;
+}
+function parseDicomFile(arrayBuffer, filename){
+  if(!window.dicomParser) throw new Error("DICOM parser failed to load — check your internet connection.");
+  const byteArray=new Uint8Array(arrayBuffer);
+  let ds;
+  try{ ds=dicomParser.parseDicom(byteArray); }
+  catch(e){ throw new Error(`${filename}: not a readable DICOM file (only standard Part 10 files are supported).`); }
+  const ts=(ds.string('x00020010')||'').trim();
+  const pdEl=ds.elements['x7fe00010'];
+  if(!pdEl) throw new Error(`${filename}: no pixel data found.`);
+  const modality=(ds.string('x00080060')||'').trim().toUpperCase();
+  const seriesDesc=(ds.string('x0008103e')||'').trim();
+  const instanceNumber=ds.intString('x00200013');
+
+  /* ---- JPEG Baseline encapsulated (TS 1.2.840.10008.1.2.4.50) ---- */
+  if(pdEl.encapsulatedPixelData){
+    if(ts!=='1.2.840.10008.1.2.4.50'){
+      const name=TS_NAMES[ts]||ts||'unknown transfer syntax';
+      throw new Error(`${filename}: ${name} — only JPEG Baseline is supported for compressed DICOM; re-export as Explicit Little Endian or JPEG Baseline.`);
+    }
+    const nFrames=Math.max(1, ds.intString('x00280008')||1);
+    const jpegFrames=[];
+    for(let i=0;i<nFrames;i++){
+      let buf;
+      try{
+        const arr=dicomParser.readEncapsulatedImageFrame(ds,pdEl,i);
+        buf=arr.buffer.slice(arr.byteOffset,arr.byteOffset+arr.byteLength);
+      }catch(e){
+        const frags=pdEl.fragments||[];
+        if(i<frags.length){
+          const f=frags[i];
+          buf=ds.byteArray.buffer.slice(ds.byteArray.byteOffset+f.position,
+            ds.byteArray.byteOffset+f.position+f.length);
+        }else throw new Error(`${filename}: can't extract JPEG frame ${i+1}.`);
+      }
+      jpegFrames.push(buf);
+    }
+    return {meta:{modality,seriesDesc,instanceNumber,filename,isJpeg:true}, frames:jpegFrames, needsAsyncDecode:true};
+  }
+
+  /* ---- Uncompressed ---- */
+  const rows=ds.uint16('x00280010'), cols=ds.uint16('x00280011');
+  if(!rows||!cols) throw new Error(`${filename}: missing image dimensions.`);
+  const bitsAllocated=ds.uint16('x00280100')||16;
+  const pixelRepresentation=ds.uint16('x00280103')||0;
+  const spp=ds.uint16('x00280002')||1;
+  const photometric=(ds.string('x00280004')||'MONOCHROME2').trim();
+  const planar=ds.uint16('x00280006')||0;
+  const slope=ds.floatString('x00281053',0) ?? 1;
+  const intercept=ds.floatString('x00281052',0) ?? 0;
+  let wc=ds.floatString('x00281050',0), ww=ds.floatString('x00281051',0);
+  const numberOfFrames=ds.intString('x00280008')||1;
+  const bytesPerSample=bitsAllocated/8;
+  const frameSize=rows*cols*spp*bytesPerSample;
+  const base=ds.byteArray.byteOffset;
+  const nFrames=Math.max(1, Math.min(numberOfFrames, Math.floor(pdEl.length/Math.max(1,frameSize))||1));
+  const frames=[];
+  for(let i=0;i<nFrames;i++){
+    const off=base+pdEl.dataOffset+i*frameSize;
+    frames.push(ds.byteArray.buffer.slice(off, off+frameSize));
+  }
+  const meta={rows,cols,spp,bitsAllocated,pixelRepresentation,photometric,planar,slope,intercept,modality,seriesDesc,instanceNumber,filename};
+  if(!ww||!wc){
+    if(spp===1){
+      const raw = bitsAllocated===8 ? new Uint8Array(frames[0])
+        : (pixelRepresentation===1 ? new Int16Array(frames[0]) : new Uint16Array(frames[0]));
+      let mn=Infinity,mx=-Infinity;
+      for(let i=0;i<raw.length;i++){const v=raw[i]*slope+intercept; if(v<mn)mn=v; if(v>mx)mx=v;}
+      if(mn===Infinity){mn=0;mx=255;}
+      wc=(mn+mx)/2; ww=Math.max(1,mx-mn);
+    }else{ ww=256; wc=128; }
+  }
+  meta.defaultWW=ww; meta.defaultWC=wc;
+  return {meta, frames};
+}
+
+async function decodeJpegDicom(parsed){
+  const frames=[]; let w0=0,h0=0;
+  for(const jpegBuf of parsed.frames){
+    const blob=new Blob([jpegBuf],{type:'image/jpeg'});
+    const url=URL.createObjectURL(blob);
+    let img;
+    try{ img=await loadImage(url); }finally{ URL.revokeObjectURL(url); }
+    const c=document.createElement('canvas'); c.width=img.naturalWidth; c.height=img.naturalHeight;
+    c.getContext('2d').drawImage(img,0,0);
+    if(!w0){w0=c.width;h0=c.height;}
+    frames.push(c.getContext('2d').getImageData(0,0,c.width,c.height).data.buffer);
+  }
+  const meta={...parsed.meta, isRgba:true, cols:w0||1, rows:h0||1, defaultWW:255, defaultWC:128,
+    spp:3, bitsAllocated:8, pixelRepresentation:0, photometric:'RGB', planar:0, slope:1, intercept:0};
+  return {meta, frames};
+}
+
+async function ingestDicom(files){
+  if(!window.dicomParser){toast("DICOM support failed to load — check your internet connection.");return;}
+  const parsed=[];
+  for(const f of files){
+    try{ parsed.push(parseDicomFile(await readArrayBuffer(f), f.name)); }
+    catch(e){ toast((e&&e.message)||("Couldn't parse "+f.name)); }
+  }
+  if(!parsed.length) return;
+  for(let i=0;i<parsed.length;i++){
+    if(parsed[i].needsAsyncDecode){
+      try{ parsed[i]=await decodeJpegDicom(parsed[i]); }
+      catch(e){ toast((e&&e.message)||("JPEG decode failed")); parsed.splice(i--,1); }
+    }
+  }
+  if(!parsed.length) return;
+  if(parsed.length===1 && parsed[0].frames.length>1){
+    const meta=parsed[0].meta;
+    openSeries(meta, parsed[0].frames.map(buf=>({buf, meta})));
+  }else if(parsed.length>1){
+    parsed.sort((a,b)=>{
+      const ai=a.meta.instanceNumber, bi=b.meta.instanceNumber;
+      if(ai!=null && bi!=null) return ai-bi;
+      return a.meta.filename.localeCompare(b.meta.filename, undefined, {numeric:true});
+    });
+    openSeries(parsed[0].meta, parsed.map(p=>({buf:p.frames[0], meta:p.meta})));
+  }else{
+    attachSingleDicom(parsed[0].meta, parsed[0].frames[0]);
+  }
+}
+
+function attachSingleDicom(meta, buf){
+  if(attachments.length>=MAX_FILES){toast(`Up to ${MAX_FILES} images per turn.`);return;}
+  const ww=meta.defaultWW, wc=meta.defaultWC;
+  const canvas=dicomFrameToCanvas(buf, meta, ww, wc, false);
+  const {dataUrl,w,h}=canvasToDataUrl(canvas);
+  const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
+  const a={id:uid(), name:meta.filename||"dicom", mime:"image/png", dataUrl, w, h, bytes,
+    dicom:{buf, meta, ww, wc, invert:false}};
+  attachments.push(a);
+  activeThumb=a.id;
+}
+/* ---------------- series scrubber (multi-slice CT/MRI) ---------------- */
+function openSeries(meta, frames){
+  series={meta, frames, index:Math.floor(frames.length/2), ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
+  $("seriesBar").classList.add("show");
+  $("seriesLbl").textContent=(meta.modality||"SERIES")+(meta.seriesDesc?" · "+meta.seriesDesc:"")+` · ${frames.length} slices`;
+  $("sliceSlider").min=0; $("sliceSlider").max=frames.length-1; $("sliceSlider").value=series.index;
+  renderSeriesFrame();
+}
+function renderSeriesFrame(){
+  if(!series) return;
+  const f=series.frames[series.index];
+  const canvas=dicomFrameToCanvas(f.buf, f.meta, series.ww, series.wc, series.invert);
+  stageImg.src=canvas.toDataURL("image/png");
+  stageImg.style.display=""; stageEmpty.style.display="none";
+  stage.classList.add("has-img");
+  $("regDim").textContent=`${f.meta.cols}×${f.meta.rows}`;
+  $("regName").textContent=(f.meta.modality||"DCM")+` · slice ${series.index+1}`;
+  $("sliceCount").textContent=`${series.index+1} / ${series.frames.length}`;
+  $("sliceSlider").value=series.index;
+  if(f.meta.isRgba) hideWLPanel();
+  else showWLPanel(f.meta.modality, series.ww, series.wc, series.invert, f.meta.defaultWW, f.meta.defaultWC,
+    (ww,wc,invert)=>{series.ww=ww;series.wc=wc;series.invert=invert;renderSeriesFrame();});
+}
+function closeSeries(){
+  series=null;
+  $("seriesBar").classList.remove("show");
+  renderStage();
+}
+function addSeriesSlice(){
+  if(!series) return;
+  if(attachments.length>=MAX_FILES){toast(`Up to ${MAX_FILES} images per turn.`);return;}
+  const f=series.frames[series.index];
+  const canvas=dicomFrameToCanvas(f.buf, f.meta, series.ww, series.wc, series.invert);
+  const {dataUrl,w,h}=canvasToDataUrl(canvas);
+  const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
+  attachments.push({id:uid(), name:`${f.meta.modality||"DCM"}-slice${series.index+1}`, mime:"image/png", dataUrl, w, h, bytes,
+    dicom:{buf:f.buf, meta:f.meta, ww:series.ww, wc:series.wc, invert:series.invert}});
+  activeThumb=attachments[attachments.length-1].id;
+  renderStrip(); refreshSend();
+  toast("Slice added to attachments","info");
+}
+function addSampleSlices(n){
+  if(!series) return;
+  const total=series.frames.length;
+  const count=Math.min(n, total, MAX_FILES-attachments.length);
+  if(count<=0){toast(`Up to ${MAX_FILES} images per turn.`);return;}
+  const step=total/(count+1);
+  for(let i=1;i<=count;i++){
+    const idx=Math.min(total-1, Math.round(step*i));
+    const f=series.frames[idx];
+    const canvas=dicomFrameToCanvas(f.buf, f.meta, series.ww, series.wc, series.invert);
+    const {dataUrl,w,h}=canvasToDataUrl(canvas);
+    const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
+    attachments.push({id:uid(), name:`${f.meta.modality||"DCM"}-slice${idx+1}`, mime:"image/png", dataUrl, w, h, bytes,
+      dicom:{buf:f.buf, meta:f.meta, ww:series.ww, wc:series.wc, invert:series.invert}});
+  }
+  activeThumb=attachments[attachments.length-1].id;
+  renderStrip(); renderStage(); refreshSend();
+  toast(`${count} slices added`,"info");
+}
+/* ---------------- window / level panel (shared: series preview + saved attachments) ---------------- */
+const CT_PRESETS=[
+  {label:"Soft tissue", ww:400, wc:40},
+  {label:"Lung", ww:1500, wc:-600},
+  {label:"Bone", ww:2000, wc:500},
+  {label:"Brain", ww:80, wc:40},
+  {label:"Abdomen", ww:350, wc:50},
+];
+function markPresetSel(label){document.querySelectorAll(".wl-chip").forEach(b=>b.classList.toggle("sel", b.textContent===label));}
+function showWLPanel(modality, ww, wc, invert, defWW, defWC, onChange){
+  $("wlPanel").classList.add("show");
+  const presetsEl=$("wlPresets"); presetsEl.innerHTML="";
+  if((modality||"")==="CT"){
+    CT_PRESETS.forEach(p=>{
+      const b=document.createElement("button"); b.className="wl-chip"; b.textContent=p.label;
+      b.onclick=()=>{
+        $("wwSlider").value=p.ww; $("wcSlider").value=p.wc;
+        $("wwVal").textContent=p.ww; $("wcVal").textContent=p.wc;
+        markPresetSel(p.label);
+        $("wlReadout").textContent=`WW ${p.ww} · WC ${p.wc}`;
+        onChange(p.ww,p.wc,$("btnInvert").classList.contains("on"));
+      };
+      presetsEl.appendChild(b);
+    });
+  }
+  const wwMax=Math.max(4000, Math.round(Math.abs(wc)*2+ww)+200);
+  $("wwSlider").min=1; $("wwSlider").max=wwMax; $("wwSlider").value=Math.round(ww);
+  $("wcSlider").min=-2000; $("wcSlider").max=3000; $("wcSlider").value=Math.round(wc);
+  $("wwVal").textContent=Math.round(ww); $("wcVal").textContent=Math.round(wc);
+  $("wlReadout").textContent=`WW ${Math.round(ww)} · WC ${Math.round(wc)}`;
+  $("btnInvert").classList.toggle("on",!!invert);
+  markPresetSel(null);
+  $("wwSlider").oninput=()=>{
+    $("wwVal").textContent=$("wwSlider").value;
+    $("wlReadout").textContent=`WW ${$("wwSlider").value} · WC ${$("wcSlider").value}`; markPresetSel(null);
+    onChange(+$("wwSlider").value, +$("wcSlider").value, $("btnInvert").classList.contains("on"));
+  };
+  $("wcSlider").oninput=()=>{
+    $("wcVal").textContent=$("wcSlider").value;
+    $("wlReadout").textContent=`WW ${$("wwSlider").value} · WC ${$("wcSlider").value}`; markPresetSel(null);
+    onChange(+$("wwSlider").value, +$("wcSlider").value, $("btnInvert").classList.contains("on"));
+  };
+  $("btnInvert").onclick=()=>{
+    $("btnInvert").classList.toggle("on");
+    onChange(+$("wwSlider").value, +$("wcSlider").value, $("btnInvert").classList.contains("on"));
+  };
+  $("btnResetWL").onclick=()=>{
+    $("wwSlider").value=Math.round(defWW); $("wcSlider").value=Math.round(defWC);
+    $("wwVal").textContent=Math.round(defWW); $("wcVal").textContent=Math.round(defWC);
+    $("btnInvert").classList.remove("on"); markPresetSel(null);
+    $("wlReadout").textContent=`WW ${Math.round(defWW)} · WC ${Math.round(defWC)}`;
+    onChange(defWW,defWC,false);
+  };
+}
+function hideWLPanel(){$("wlPanel").classList.remove("show");}
+function updateAttachmentWL(a, ww, wc, invert){
+  a.dicom.ww=ww; a.dicom.wc=wc; a.dicom.invert=invert;
+  const canvas=dicomFrameToCanvas(a.dicom.buf, a.dicom.meta, ww, wc, invert);
+  const {dataUrl,w,h}=canvasToDataUrl(canvas);
+  a.dataUrl=dataUrl; a.w=w; a.h=h;
+  a.bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
+  if(a.id===activeThumb){ stageImg.src=dataUrl; $("regDim").textContent=`${w}×${h}`; }
+  renderStrip();
+}
+/* ---------------- render strip, stage ---------------- */
+function renderStrip(){
+  strip.innerHTML="";
+  attachments.forEach(a=>{
+    const el=document.createElement("div");
+    el.className="thumb"+(a.id===activeThumb && !series?" active":"");
+    el.innerHTML=`<img src="${a.dataUrl}" alt=""><div class="x" title="Remove"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg></div>`;
+    el.querySelector("img").onclick=()=>{if(series)closeSeries();activeThumb=a.id;renderStrip();renderStage();};
+    el.querySelector(".x").onclick=(e)=>{e.stopPropagation();removeAttachment(a.id);};
+    strip.appendChild(el);
+  });
+  if(attachments.length){
+    const add=document.createElement("button"); add.className="thumb-add"; add.title="Add image";
+    add.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M12 5v14M5 12h14"/></svg>';
+    add.onclick=()=>$("fileInput").click();
+    strip.appendChild(add);
+  }
+  $("vpCount").textContent = attachments.length? `${attachments.length} / ${MAX_FILES}` : "";
+}
+function removeAttachment(id){
+  attachments=attachments.filter(a=>a.id!==id);
+  if(activeThumb===id) activeThumb=attachments[attachments.length-1]?.id||null;
+  renderStrip();renderStage();refreshSend();
+}
+function renderStage(){
+  if(series){ renderSeriesFrame(); return; }
+  const a=attachments.find(x=>x.id===activeThumb);
+  stage.classList.toggle("has-img",!!a);
+  if(a){
+    stageImg.src=a.dataUrl; stageImg.style.display=""; stageEmpty.style.display="none";
+    $("regDim").textContent=`${a.w}×${a.h}`;
+    $("regName").textContent=(a.name.length>22?a.name.slice(0,20)+"…":a.name);
+    if(a.dicom && !a.dicom.meta.isRgba){
+      showWLPanel(a.dicom.meta.modality, a.dicom.ww, a.dicom.wc, a.dicom.invert,
+        a.dicom.meta.defaultWW, a.dicom.meta.defaultWC, (ww,wc,invert)=>updateAttachmentWL(a,ww,wc,invert));
+    }else{ hideWLPanel(); }
+  }else{
+    stageImg.style.display="none"; stageEmpty.style.display="";
+    $("regDim").textContent=""; $("regName").textContent="";
+    hideWLPanel();
+  }
+  const total=attachments.reduce((s,a)=>s+a.bytes,0);
+  stripMeta.innerHTML = attachments.length
+    ? `<span>payload <span class="v">${fmtBytes(total)}</span></span><span>encoded <span class="v">base64</span></span>`
+    : "";
+}
+function fmtBytes(b){return b<1024?b+" B":b<1048576?(b/1024).toFixed(1)+" KB":(b/1048576).toFixed(2)+" MB";}
+
+/* series scrubber controls */
+$("slicePrev").onclick=()=>{if(!series)return;series.index=Math.max(0,series.index-1);renderSeriesFrame();};
+$("sliceNext").onclick=()=>{if(!series)return;series.index=Math.min(series.frames.length-1,series.index+1);renderSeriesFrame();};
+$("sliceSlider").oninput=(e)=>{if(!series)return;series.index=+e.target.value;renderSeriesFrame();};
+$("btnAddSlice").onclick=addSeriesSlice;
+$("btnAddSample").onclick=()=>addSampleSlices(5);
+$("btnCloseSeries").onclick=closeSeries;
+
+/* ---------------- drag / paste ---------------- */
+["dragenter","dragover"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();stage.classList.add("drag");}));
+["dragleave","drop"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==="dragleave"&&stage.contains(e.relatedTarget))return;stage.classList.remove("drag");}));
+stage.addEventListener("drop",e=>{if(e.dataTransfer?.files?.length) ingest(e.dataTransfer.files);});
+stage.addEventListener("click",()=>{if(!attachments.length)$("fileInput").click();});
+window.addEventListener("paste",e=>{const f=[...(e.clipboardData?.items||[])].filter(i=>i.type.startsWith("image/")).map(i=>i.getAsFile()).filter(Boolean);if(f.length){ingest(f);toast("Image pasted","info");}});
+$("fileInput").addEventListener("change",e=>{if(e.target.files.length)ingest(e.target.files);e.target.value="";});
+$("btnAttach").addEventListener("click",()=>$("fileInput").click());
+
+/* ---------------- markdown helpers ---------------- */
+function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
+function md(src){
+  const blocks=[];
+  src=src.replace(/```(\w*)\n?([\s\S]*?)```/g,(m,lang,code)=>{blocks.push(`<pre><code>${esc(code.replace(/\n$/,""))}</code></pre>`);return `\u0000${blocks.length-1}\u0000`;});
+  let out=esc(src);
+  out=out.replace(/`([^`]+)`/g,(m,c)=>`<code>${c}</code>`);
+  const lines=out.split("\n"); let html="",list=null;
+  const closeList=()=>{if(list){html+=`</${list}>`;list=null;}};
+  for(let ln of lines){
+    let m;
+    if((m=ln.match(/^\u0000(\d+)\u0000$/))){closeList();html+=blocks[+m[1]];continue;}
+    if((m=ln.match(/^(#{1,3})\s+(.*)$/))){closeList();const n=m[1].length;html+=`<h${n}>${inline(m[2])}</h${n}>`;continue;}
+    if((m=ln.match(/^\s*>\s?(.*)$/))){closeList();html+=`<blockquote>${inline(m[1])}</blockquote>`;continue;}
+    if((m=ln.match(/^\s*[-*]\s+(.*)$/))){if(list!=="ul"){closeList();list="ul";html+="<ul>";}html+=`<li>${inline(m[1])}</li>`;continue;}
+    if((m=ln.match(/^\s*\d+\.\s+(.*)$/))){if(list!=="ol"){closeList();list="ol";html+="<ol>";}html+=`<li>${inline(m[1])}</li>`;continue;}
+    if(ln.trim()===""){closeList();continue;}
+    closeList(); html+=`<p>${inline(ln)}</p>`;
+  }
+  closeList(); return html;
+}
+function inline(s){
+  return s
+    .replace(/\*\*([^*]+)\*\*/g,"<strong>$1</strong>")
+    .replace(/(^|[^*])\*([^*]+)\*/g,"$1<em>$2</em>")
+    .replace(/\[([^\]]+)\]\((https?:[^)]+)\)/g,'<a href="$2" target="_blank" rel="noopener">$1</a>');
+}
+
+/* ---------------- render messages ---------------- */
+function clearWelcome(){const w=$("welcome");if(w)w.remove();}
+function addMsg(role,text,images){
+  clearWelcome();
+  const el=document.createElement("div"); el.className="msg "+(role==="user"?"user":"bot");
+  const imgHtml=(images&&images.length)?`<div class="msg-imgs">${images.map(u=>`<img src="${u}" data-full="${u}" alt="">`).join("")}</div>`:"";
+  el.innerHTML=`
+    <div class="avatar">${role==="user"?"YOU":"VP"}</div>
+    <div class="bubble">
+      <div class="who"><span>${role==="user"?"Query":"VisionPro"}</span><span class="t">${nowT()}</span></div>
+      ${imgHtml}
+      <div class="content">${role==="user"?esc(text).replace(/\n/g,"<br>"):md(text)}</div>
+      ${role==="bot"?`<div class="msg-tools"></div>`:""}
+    </div>`;
+  stream.appendChild(el);
+  el.querySelectorAll(".msg-imgs img").forEach(im=>im.onclick=()=>openLB(im.dataset.full));
+  stream.scrollTop=stream.scrollHeight;
+  return el;
+}
+function nowT(){const d=new Date();return d.toLocaleTimeString([], {hour:"2-digit",minute:"2-digit"});}
+function openLB(src){$("lbImg").src=src;$("lightbox").classList.add("open");}
+$("lightbox").onclick=()=>$("lightbox").classList.remove("open");
+
+/* ---------------- send flow ---------------- */
+function refreshSend(){
+  const hasText=input.value.trim().length>0;
+  btnSend.disabled = busy? false : !(hasText||attachments.length);
+}
+input.addEventListener("input",()=>{input.style.height="auto";input.style.height=Math.min(input.scrollHeight,170)+"px";refreshSend();});
+input.addEventListener("keydown",e=>{if(e.key==="Enter"&&!e.shiftKey){e.preventDefault();onSend();}});
+btnSend.addEventListener("click",()=>{busy?stopGen():onSend();});
+document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{input.value=c.dataset.q;input.dispatchEvent(new Event("input"));input.focus();});
+
+function setBusy(b){
+  busy=b; updateHeader(b?"busy":"ok"); stage.classList.toggle("reading",b);
+  const rl=$("reticleLabel"); if(rl) rl.textContent=b?"ANALYZING":"READY";
+  if(b){btnSend.classList.add("stop");btnSend.innerHTML='<svg viewBox="0 0 24 24" fill="currentColor"><rect x="6" y="6" width="12" height="12" rx="2"/></svg>';btnSend.disabled=false;}
+  else{btnSend.classList.remove("stop");btnSend.innerHTML='<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>';refreshSend();}
+}
+function stopGen(){if(controller)controller.abort();}
+
+async function onSend(){
+  if(busy) return;
+  const text=input.value.trim();
+  if(!text && !attachments.length) return;
+  if(!cfg.url){toast("Connect an endpoint in Settings first.");openDrawer();return;}
+  const payloadBytes=attachments.reduce((s,a)=>s+a.bytes,0);
+  if(payloadBytes>WARN_PAYLOAD_BYTES) toast(`Large payload (${fmtBytes(payloadBytes)}) — model may be slow or reject the request.`,"err");
+  const imgs=attachments.map(a=>a.dataUrl);
+  addMsg("user",text||"(image only)",imgs);
+  history.push({role:"user",text,images:imgs});
+  input.value=""; input.style.height="auto";
+  attachments=[]; activeThumb=null; renderStrip(); renderStage();
+  const botEl=addMsg("bot","",null);
+  const contentEl=botEl.querySelector(".content");
+  contentEl.innerHTML='<span class="cursor"></span>';
+  setBusy(true);
+  const t0=performance.now();
+  try{
+    const full=await callModel(txt=>{
+      contentEl.innerHTML=md(txt)+'<span class="cursor"></span>';
+      stream.scrollTop=stream.scrollHeight;
+    });
+    contentEl.innerHTML=md(full);
+    history.push({role:"assistant",text:full,images:[]});
+    const ms=Math.round(performance.now()-t0);
+    finishBot(botEl,full,ms);
+    saveCurrentSession();
+    updateHeader("ok");
+  }catch(err){
+    if(err.name==="AbortError"){
+      const cur=contentEl.textContent||"";
+      contentEl.innerHTML=md(cur)+' <em style="color:var(--ink-3)">— stopped</em>';
+    }else{
+      botEl.remove();
+      const failed=history.pop(); // restore user turn so it can be retried
+      if(failed){input.value=failed.text||"";input.dispatchEvent(new Event("input"));}
+      updateHeader("err");
+      toast(explainErr(err));
+    }
+  }finally{setBusy(false);controller=null;}
+}
+
+function finishBot(botEl,text,ms){
+  const tools=botEl.querySelector(".msg-tools"); if(!tools)return;
+  tools.innerHTML=`
+    <button class="tool" data-a="copy"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><rect x="9" y="9" width="13" height="13" rx="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>Copy</button>
+    <button class="tool" data-a="regen"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M23 4v6h-6M1 20v-6h6"/><path d="M3.51 9a9 9 0 0 1 14.85-3.36L23 10M1 14l4.64 4.36A9 9 0 0 0 20.49 15"/></svg>Retry</button>
+    <span class="perf">${ms} ms</span>`;
+  tools.querySelector('[data-a="copy"]').onclick=()=>{navigator.clipboard?.writeText(text);toast("Copied to clipboard","info");};
+  tools.querySelector('[data-a="regen"]').onclick=()=>regen(botEl);
+}
+function regen(botEl){
+  if(busy)return;
+  if(history.length && history[history.length-1].role==="assistant") history.pop();
+  botEl.remove();
+  const lastUser=[...history].reverse().find(m=>m.role==="user");
+  if(!lastUser)return;
+  const newBot=addMsg("bot","",null); const c=newBot.querySelector(".content");
+  c.innerHTML='<span class="cursor"></span>'; setBusy(true); const t0=performance.now();
+  callModel(txt=>{c.innerHTML=md(txt)+'<span class="cursor"></span>';stream.scrollTop=stream.scrollHeight;})
+    .then(full=>{c.innerHTML=md(full);history.push({role:"assistant",text:full,images:[]});finishBot(newBot,full,Math.round(performance.now()-t0));saveCurrentSession();updateHeader("ok");})
+    .catch(err=>{if(err.name!=="AbortError"){newBot.remove();updateHeader("err");toast(explainErr(err));}})
+    .finally(()=>{setBusy(false);controller=null;});
+}
+
+/* ---------------- model call ---------------- */
+function joinUrl(base,path){return base.replace(/\/+$/,"")+path;}
+function explainErr(err){
+  const m=(err&&err.message)||"";
+  if(/Failed to fetch|NetworkError|load failed/i.test(m))
+    return "Can't reach the endpoint. Check the URL is running and CORS is allowed.";
+  return m||"Request failed.";
+}
+async function callModel(onDelta){
+  controller=new AbortController();
+  return cfg.fmt==="ollama" ? callOllama(onDelta) : callOpenAI(onDelta);
+}
+async function callOpenAI(onDelta){
+  const messages=[];
+  if(cfg.system) messages.push({role:"system",content:cfg.system});
+  for(const m of history){
+    if(m.role==="user"){
+      const content=[];
+      if(m.text) content.push({type:"text",text:m.text});
+      (m.images||[]).forEach(u=>content.push({type:"image_url",image_url:{url:u}}));
+      messages.push({role:"user",content:content.length?content:m.text});
+    }else messages.push({role:"assistant",content:m.text});
+  }
+  const body={model:cfg.model,messages,temperature:cfg.temp,max_tokens:cfg.maxTok,stream:cfg.stream};
+  const headers={"Content-Type":"application/json"};
+  if(cfg.key) headers["Authorization"]="Bearer "+cfg.key;
+  const res=await fetch(joinUrl(cfg.url,"/chat/completions"),{method:"POST",headers,body:JSON.stringify(body),signal:controller.signal});
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}${await bodySnippet(res)}`);
+  if(!cfg.stream){const j=await res.json();const t=j.choices?.[0]?.message?.content||"";onDelta(t);return t;}
+  return readSSE(res,onDelta,chunk=>chunk.choices?.[0]?.delta?.content||"");
+}
+async function callOllama(onDelta){
+  const messages=[];
+  if(cfg.system) messages.push({role:"system",content:cfg.system});
+  for(const m of history){
+    if(m.role==="user"){
+      const msg={role:"user",content:m.text||""};
+      const imgs=(m.images||[]).map(u=>u.slice(u.indexOf(",")+1));
+      if(imgs.length) msg.images=imgs;
+      messages.push(msg);
+    }else messages.push({role:"assistant",content:m.text});
+  }
+  const body={model:cfg.model,messages,stream:cfg.stream,options:{temperature:cfg.temp,num_predict:cfg.maxTok}};
+  const headers={"Content-Type":"application/json"};
+  if(cfg.key) headers["Authorization"]="Bearer "+cfg.key;
+  const res=await fetch(joinUrl(cfg.url,"/chat"),{method:"POST",headers,body:JSON.stringify(body),signal:controller.signal});
+  if(!res.ok) throw new Error(`${res.status} ${res.statusText}${await bodySnippet(res)}`);
+  if(!cfg.stream){const j=await res.json();const t=j.message?.content||"";onDelta(t);return t;}
+  return readNDJSON(res,onDelta);
+}
+async function bodySnippet(res){try{const t=await res.text();return t?" — "+t.slice(0,160):"";}catch(e){return "";}}
+async function readSSE(res,onDelta,extract){
+  const reader=res.body.getReader(), dec=new TextDecoder(); let buf="",full="";
+  while(true){
+    const {done,value}=await reader.read(); if(done)break;
+    buf+=dec.decode(value,{stream:true});
+    let idx;
+    while((idx=buf.indexOf("\n"))>=0){
+      let line=buf.slice(0,idx).trim(); buf=buf.slice(idx+1);
+      if(!line||!line.startsWith("data:"))continue;
+      const data=line.slice(5).trim();
+      if(data==="[DONE]")return full;
+      try{const j=JSON.parse(data);const d=extract(j);if(d){full+=d;onDelta(full);}}catch(e){}
+    }
+  }
+  return full;
+}
+async function readNDJSON(res,onDelta){
+  const reader=res.body.getReader(), dec=new TextDecoder(); let buf="",full="";
+  while(true){
+    const {done,value}=await reader.read(); if(done)break;
+    buf+=dec.decode(value,{stream:true});
+    let idx;
+    while((idx=buf.indexOf("\n"))>=0){
+      const line=buf.slice(0,idx).trim(); buf=buf.slice(idx+1);
+      if(!line)continue;
+      try{const j=JSON.parse(line);const d=j.message?.content||"";if(d){full+=d;onDelta(full);}if(j.done)return full;}catch(e){}
+    }
+  }
+  if(buf.trim()){try{const j=JSON.parse(buf.trim());const d=j.message?.content||"";if(d){full+=d;onDelta(full);}}catch(e){}}
+  return full;
+}
+
+/* ---------------- settings drawer ---------------- */
+const drawer=$("drawer"), scrim=$("scrim");
+function openDrawer(){syncCfgToForm();drawer.classList.add("open");scrim.classList.add("open");}
+function closeDrawer(){drawer.classList.remove("open");scrim.classList.remove("open");$("testResult").classList.remove("show");}
+$("btnSettings").onclick=openDrawer; $("btnCloseDrawer").onclick=closeDrawer; scrim.onclick=closeDrawer;
+
+/* ---------------- history drawer ---------------- */
+const histDrawer=$("histDrawer"), histScrim=$("histScrim");
+function openHistory(){renderHistoryPanel();histDrawer.classList.add("open");histScrim.classList.add("open");}
+function closeHistory(){histDrawer.classList.remove("open");histScrim.classList.remove("open");}
+$("btnHistory").onclick=openHistory; $("btnCloseHist").onclick=closeHistory; histScrim.onclick=closeHistory;
+
+function fmtRelTime(ts){
+  const s=Math.round((Date.now()-ts)/1000);
+  if(s<60) return "just now";
+  if(s<3600) return Math.round(s/60)+" min ago";
+  if(s<86400) return Math.round(s/3600)+" hr ago";
+  return Math.round(s/86400)+" days ago";
+}
+function renderHistoryPanel(){
+  const all=loadAllSessions();
+  $("histCount").textContent=all.length?`${all.length} session${all.length===1?"":"s"}`:"empty";
+  const body=$("histBody"); body.innerHTML="";
+  if(!all.length){
+    body.innerHTML='<div class="hist-empty">No saved sessions yet.<br>Start a conversation — it saves automatically.</div>';
+    return;
+  }
+  all.forEach(sess=>{
+    const el=document.createElement("div"); el.className="sess-item";
+    el.innerHTML=`<div class="s-title">${esc(sess.title)}</div>
+      <div class="s-meta">
+        <span>${sess.messages?.length||0} turns</span>
+        <span>${fmtRelTime(sess.ts)}</span>
+        <button class="s-del" title="Delete">Delete</button>
+      </div>`;
+    el.querySelector(".s-del").onclick=e=>{
+      e.stopPropagation();
+      deleteStoredSession(sess.id);
+      if(sess.id===currentSessionId) clearCurrentSession();
+      renderHistoryPanel();
+    };
+    el.onclick=()=>{
+      pushToSessionHistory();
+      doRestoreSession(sess);
+      closeHistory();
+    };
+    body.appendChild(el);
+  });
+}
+
+/* ---------------- export ---------------- */
+$("btnExport").onclick=exportMarkdown;
+$("connBannerBtn").onclick=openDrawer;
+
+$("btnNewSession").onclick=()=>{
+  if(busy)stopGen();
+  pushToSessionHistory();
+  clearCurrentSession();
+  currentSessionId=uid();
+  history=[]; attachments=[]; activeThumb=null; series=null;
+  $("seriesBar").classList.remove("show");
+  renderStrip(); renderStage();
+  stream.innerHTML=`
+    <div class="conn-banner" id="connBanner">
+      <svg class="ic" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8"><path d="M12 9v4M12 17h.01M10.29 3.86 1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"/></svg>
+      <div class="txt" id="connBannerTxt"></div>
+      <button id="connBannerBtn">Connect</button>
+    </div>
+    <div class="welcome" id="welcome">
+      <div class="big">Read the image. Ask anything.</div>
+      <p>A private multimodal console wired straight to your local vision-language endpoint. Attach one or more images, then discuss findings in a running conversation.</p>
+      <div class="chips">
+        <button class="chip" data-q="Describe this image and note any abnormal findings.">Describe findings</button>
+        <button class="chip" data-q="What differential diagnoses would you consider from this image?">Differentials</button>
+        <button class="chip" data-q="Identify anatomical structures visible here.">Identify anatomy</button>
+      </div>
+    </div>`;
+  document.querySelectorAll(".chip").forEach(c=>c.onclick=()=>{input.value=c.dataset.q;input.dispatchEvent(new Event("input"));input.focus();});
+  $("connBannerBtn").onclick=openDrawer;
+  updateConnBanner();
+  toast("New session started","info");
+};
+
+function syncCfgToForm(){
+  $("cfgUrl").value=cfg.url; $("cfgModel").value=cfg.model; $("cfgKey").value=cfg.key;
+  $("cfgSystem").value=cfg.system; $("cfgTemp").value=cfg.temp; $("tempVal").textContent=(+cfg.temp).toFixed(2);
+  $("cfgMaxTok").value=cfg.maxTok;
+  document.querySelectorAll("#segFormat button").forEach(b=>b.classList.toggle("sel",b.dataset.fmt===cfg.fmt));
+  document.querySelectorAll("#segStream button").forEach(b=>b.classList.toggle("sel",(b.dataset.stream==="1")===cfg.stream));
+  updateFmtHint(); updateDrawerHost();
+}
+function updateDrawerHost(){try{$("drawerHost").textContent=new URL(cfg.url).host||"—";}catch(e){$("drawerHost").textContent=cfg.url||"—";}}
+function updateFmtHint(){
+  $("fmtHint").innerHTML = cfg.fmt==="ollama"
+    ? 'Ollama <code>/api/chat</code>. Images sent as raw base64 in the <code>images</code> array.'
+    : 'llama-server\'s built-in <code>/v1/chat/completions</code>. Also works for vLLM, LM Studio, TGI. Images sent as base64 data-URLs.';
+}
+document.querySelectorAll("#segFormat button").forEach(b=>b.onclick=()=>{
+  cfg.fmt=b.dataset.fmt;
+  document.querySelectorAll("#segFormat button").forEach(x=>x.classList.toggle("sel",x===b));
+  if(cfg.fmt==="ollama"&&/\/v1\/?$/.test($("cfgUrl").value)) $("cfgUrl").value=$("cfgUrl").value.replace(/\/v1\/?$/,"");
+  updateFmtHint();
+});
+document.querySelectorAll("#segStream button").forEach(b=>b.onclick=()=>{
+  document.querySelectorAll("#segStream button").forEach(x=>x.classList.toggle("sel",x===b));
+});
+$("cfgTemp").oninput=e=>$("tempVal").textContent=(+e.target.value).toFixed(2);
+$("cfgUrl").oninput=()=>{try{$("drawerHost").textContent=new URL($("cfgUrl").value).host;}catch(e){}};
+function readForm(){
+  return {
+    fmt:document.querySelector("#segFormat button.sel").dataset.fmt,
+    url:$("cfgUrl").value.trim(),
+    model:$("cfgModel").value.trim()||DEFAULTS.model,
+    key:$("cfgKey").value,
+    system:$("cfgSystem").value,
+    temp:parseFloat($("cfgTemp").value),
+    maxTok:parseInt($("cfgMaxTok").value)||1024,
+    stream:document.querySelector("#segStream button.sel").dataset.stream==="1"
+  };
+}
+function validUrl(v){return /^https?:\/\/.+/i.test(v.trim());}
+$("btnSave").onclick=()=>{
+  const form=readForm();
+  const urlField=$("cfgUrl"), urlErr=$("urlErr");
+  if(!validUrl(form.url)){
+    urlField.classList.add("invalid"); urlErr.classList.add("show"); urlField.focus();
+    return;
+  }
+  urlField.classList.remove("invalid"); urlErr.classList.remove("show");
+  cfg={...cfg,...form};saveCfg();updateHeader(cfg.url?"ok":"idle");closeDrawer();toast("Endpoint saved","info");
+  if(cfg.url) startHeartbeat(); else stopHeartbeat();
+};
+$("cfgUrl").addEventListener("input",()=>{$("cfgUrl").classList.remove("invalid");$("urlErr").classList.remove("show");});
+$("btnReset").onclick=()=>{cfg={...DEFAULTS};saveCfg();syncCfgToForm();updateHeader("idle");toast("Reset to defaults","info");};
+
+$("btnTest").onclick=async()=>{
+  const probe={...cfg,...readForm()};
+  const box=$("testResult"); box.className="test-result show run"; box.innerHTML="Pinging endpoint…";
+  try{
+    const headers={"Content-Type":"application/json"}; if(probe.key)headers["Authorization"]="Bearer "+probe.key;
+    let url,body;
+    if(probe.fmt==="ollama"){url=joinUrl(probe.url,"/chat");body={model:probe.model,messages:[{role:"user",content:"ping"}],stream:false,options:{num_predict:1}};}
+    else{url=joinUrl(probe.url,"/chat/completions");body={model:probe.model,messages:[{role:"user",content:"ping"}],max_tokens:1,stream:false};}
+    const ctl=new AbortController(); const to=setTimeout(()=>ctl.abort(),12000);
+    const t0=performance.now();
+    const res=await fetch(url,{method:"POST",headers,body:JSON.stringify(body),signal:ctl.signal});
+    clearTimeout(to);
+    const ms=Math.round(performance.now()-t0);
+    if(res.ok){box.className="test-result show ok";box.innerHTML=`✓ Reachable · ${probe.model} responded in ${ms} ms`;}
+    else{box.className="test-result show bad";box.innerHTML=`✗ ${res.status} ${res.statusText}${await bodySnippet(res)}`;}
+  }catch(err){box.className="test-result show bad";box.innerHTML="✗ "+explainErr(err);}
+};
+
+/* ---------------- keyboard ---------------- */
+window.addEventListener("keydown",e=>{
+  if((e.metaKey||e.ctrlKey)&&e.key.toLowerCase()==="k"){e.preventDefault();drawer.classList.contains("open")?closeDrawer():openDrawer();}
+  if(e.key==="Escape"){if($("lightbox").classList.contains("open"))$("lightbox").classList.remove("open");else if(histDrawer.classList.contains("open"))closeHistory();else if(drawer.classList.contains("open"))closeDrawer();}
+});
+
+/* ---------------- boot ---------------- */
+updateHeader(cfg.url?"ok":"idle");
+updateConnBanner();
+if(cfg.url) startHeartbeat();
+
+/* offer to restore last session if one exists */
+(()=>{
+  const saved=loadCurrentSavedSession();
+  if(!saved||!saved.messages?.length) return;
+  currentSessionId=saved.id;
+  const chip=document.createElement("button");
+  chip.className="chip";
+  chip.textContent=`↩ Restore: "${saved.title}"`;
+  chip.onclick=()=>{doRestoreSession(saved);chip.remove();};
+  document.querySelector(".chips")?.appendChild(chip);
+})();
+</script>
+</body>
+</html>
