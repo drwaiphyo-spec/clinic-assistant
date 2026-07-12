@@ -61,6 +61,7 @@ input,textarea{font-family:inherit}
   box-shadow:0 0 10px rgba(72,198,184,.5)}
 .brand b{font-size:15px;display:flex;align-items:center;gap:6px}
 .brand span{color:var(--ink-3);font-weight:400}
+.brand .by{font-size:11px;font-weight:400;color:var(--ink-3);letter-spacing:.01em;white-space:nowrap}
 .pro-badge{font-family:var(--mono);font-size:9.5px;font-weight:600;letter-spacing:.04em;
   color:var(--teal);background:var(--teal-ghost);border:1px solid var(--teal-dim);
   padding:2px 5px;border-radius:5px;line-height:1.2}
@@ -379,14 +380,14 @@ input,textarea{font-family:inherit}
   <header class="topbar">
     <div class="brand">
       <div class="glyph"></div>
-      <b>Vision<span class="pro-badge">Pro</span></b><span>Medical</span>
+      <b>Vision<span class="pro-badge">Pro</span></b><span>Medical</span><span class="by">by Dr Wai Phyo Maung</span>
     </div>
     <div class="status">
       <div class="readout"><span class="dot" id="hbDot"></span><span id="hbState">not configured</span></div>
-      <button class="icon-btn" id="btnNewSession" title="New session" aria-label="New session">
+      <button class="icon-btn" id="btnNewSession" title="Next session" aria-label="Next session">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M3 6h18M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2m3 0-1 14a2 2 0 0 1-2 2H7a2 2 0 0 1-2-2L4 6"/></svg>
       </button>
-      <button class="icon-btn" id="btnExport" title="Export conversation as Markdown" aria-label="Export conversation">
+      <button class="icon-btn" id="btnExport" title="Export conversation as PDF" aria-label="Export conversation as PDF">
         <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
       </button>
       <button class="icon-btn" id="btnHistory" title="Session history" aria-label="Session history">
@@ -475,6 +476,7 @@ input,textarea{font-family:inherit}
           <button class="chip" data-q="Describe this image and note any abnormal findings.">Describe findings</button>
           <button class="chip" data-q="What differential diagnoses would you consider from this image?">Differentials</button>
           <button class="chip" data-q="Identify anatomical structures visible here.">Identify anatomy</button>
+          <button class="chip" data-q="What is the most likely diagnosis?">Diagnosis</button>
         </div>
         <div class="composer" id="composer">
           <textarea id="input" rows="1" placeholder="Ask about the image…"></textarea>
@@ -700,21 +702,39 @@ function doRestoreSession(sess){
 }
 
 /* ---------------- export ---------------- */
-function exportMarkdown(){
+function exportPDF(){
   if(!history.length){toast("Nothing to export.");return;}
-  const lines=["# VisionPro Medical — Conversation Export",
-    `*${new Date().toLocaleString()}*\n---\n`];
-  for(const m of history){
-    lines.push(m.role==="user"?`**Query**\n\n${m.text}`:
-      `**VisionPro**\n\n${m.text}`);
-    lines.push("\n---\n");
-  }
-  const blob=new Blob([lines.join("\n")],{type:"text/markdown"});
-  const a=document.createElement("a");
-  a.href=URL.createObjectURL(blob);
-  a.download=`visionpro-${new Date().toISOString().slice(0,10)}.md`;
-  a.click();
-  URL.revokeObjectURL(a.href);
+  const date=new Date().toLocaleString();
+  const rows=history.map(m=>{
+    const label=m.role==="user"?"Query":"VisionPro";
+    const cls=m.role==="user"?"user":"bot";
+    // convert newlines to <br> and escape HTML
+    const safe=m.text.replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;")
+      .replace(/\n/g,"<br>");
+    return `<div class="msg ${cls}"><span class="label">${label}</span><div class="body">${safe}</div></div>`;
+  }).join("");
+  const html=`<!DOCTYPE html><html><head><meta charset="utf-8">
+<title>VisionPro Export — ${date}</title>
+<style>
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:system-ui,sans-serif;font-size:13px;color:#111;padding:32px 40px;max-width:800px;margin:auto}
+  h1{font-size:18px;font-weight:600;margin-bottom:4px}
+  .meta{color:#666;font-size:11px;margin-bottom:24px}
+  .msg{margin-bottom:18px;padding:12px 16px;border-radius:8px;page-break-inside:avoid}
+  .msg.user{background:#f0f4ff;border-left:3px solid #4f7ef7}
+  .msg.bot{background:#f5f5f5;border-left:3px solid #888}
+  .label{display:block;font-weight:600;font-size:11px;text-transform:uppercase;letter-spacing:.06em;margin-bottom:6px;color:#555}
+  .body{line-height:1.6}
+  hr{border:none;border-top:1px solid #ddd;margin:24px 0}
+  @media print{body{padding:20px 24px}}
+</style></head><body>
+<h1>VisionPro Medical — Conversation Export</h1>
+<p class="meta">${date}</p>
+<hr>${rows}</body></html>`;
+  const w=window.open("","_blank","width=820,height=960");
+  w.document.write(html);
+  w.document.close();
+  w.onload=()=>{w.focus();w.print();};
 }
 
 /* ---------------- dom ---------------- */
@@ -1516,7 +1536,7 @@ function renderHistoryPanel(){
 }
 
 /* ---------------- export ---------------- */
-$("btnExport").onclick=exportMarkdown;
+$("btnExport").onclick=exportPDF;
 $("connBannerBtn").onclick=openDrawer;
 
 $("btnNewSession").onclick=()=>{
