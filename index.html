@@ -481,8 +481,11 @@ input,textarea{font-family:inherit}
         <div class="composer" id="composer">
           <textarea id="input" rows="1" placeholder="Ask about the image…"></textarea>
           <div class="comp-btns">
-            <button class="attach" id="btnAttach" title="Attach image" aria-label="Attach image">
+            <button class="attach" id="btnAttach" title="Attach image / DICOM / TIFF / ZIP" aria-label="Attach image">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M21.44 11.05l-9.19 9.19a6 6 0 0 1-8.49-8.49l9.19-9.19a4 4 0 0 1 5.66 5.66l-9.2 9.19a2 2 0 0 1-2.83-2.83l8.49-8.48"/></svg>
+            </button>
+            <button class="attach" id="btnFolder" title="Attach DICOM folder" aria-label="Attach DICOM folder">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
             </button>
             <button class="send" id="btnSend" disabled aria-label="Send">
               <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13M22 2l-7 20-4-9-9-4 20-7z"/></svg>
@@ -500,7 +503,8 @@ input,textarea{font-family:inherit}
   </div>
 </div>
 
-<input type="file" id="fileInput" accept="image/*,.dcm,.dicom,application/dicom,.tif,.tiff" multiple hidden>
+<input type="file" id="fileInput" accept="image/*,.dcm,.dicom,application/dicom,.tif,.tiff,.zip,application/zip" multiple hidden>
+<input type="file" id="folderInput" webkitdirectory multiple hidden>
 
 <!-- settings -->
 <div class="scrim" id="scrim"></div>
@@ -580,11 +584,10 @@ input,textarea{font-family:inherit}
     <div class="divider"></div>
     <div class="hint" style="font-size:11.5px">
       <b style="color:var(--ink-2)">Formats:</b> JPEG/PNG/WebP/GIF/BMP, DICOM (<code>.dcm</code>, including
-      extensionless PACS exports — auto-detected by file signature), and TIFF. DICOM supports uncompressed
-      transfer syntaxes only; JPEG2000/JPEG-LS/RLE-compressed files will show an error asking you to re-export.
-      Multi-slice CT/MRI (either one multi-frame file or many single-frame files dropped together) opens a
-      slice scrubber with window/level controls — pick the slices worth sending rather than attaching an
-      entire study.
+      extensionless PACS exports — auto-detected by file signature), TIFF, and ZIP archives of DICOM files.
+      Use the folder button <svg style="width:11px;height:11px;vertical-align:-1px" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z"/></svg>
+      or drag a DICOM folder / ZIP directly onto the viewport to load an entire study at once.
+      Multi-slice CT/MRI opens a slice scrubber with window/level controls — pick slices to send rather than attaching an entire study.
     </div>
     <div class="hint" style="font-size:11.5px">
       <b style="color:var(--ink-2)">llama.cpp:</b> run <code>llama-server</code> with a vision-capable gguf and
@@ -623,6 +626,8 @@ input,textarea{font-family:inherit}
 <script src="https://unpkg.com/dicom-parser"></script>
 <!-- TIFF decoder (photopea/UTIF, MIT) — for pathology/histology TIFF exports -->
 <script src="https://unpkg.com/utif/UTIF.js"></script>
+<!-- ZIP extractor (Stuk/jszip, MIT) — for reading DICOM ZIP archives -->
+<script src="https://unpkg.com/jszip/dist/jszip.min.js"></script>
 
 <script>
 "use strict";
@@ -822,10 +827,53 @@ async function sniffDicom(file){
 }
 function isTiff(file){return /\.(tif|tiff)$/i.test(file.name)||file.type==="image/tiff";}
 
+/* ---------------- folder + zip helpers ---------------- */
+async function collectFromEntry(entry){
+  if(entry.isFile) return [await new Promise((res,rej)=>entry.file(res,rej))];
+  if(entry.isDirectory){
+    const reader=entry.createReader(), all=[];
+    await new Promise(res=>{
+      const readBatch=()=>reader.readEntries(batch=>{if(!batch.length)return res();all.push(...batch);readBatch();},res);
+      readBatch();
+    });
+    return (await Promise.all(all.map(collectFromEntry))).flat();
+  }
+  return [];
+}
+
+async function extractZip(file){
+  if(!window.JSZip){toast("ZIP support failed to load — check your connection.");return [];}
+  try{
+    const zip=await JSZip.loadAsync(await file.arrayBuffer());
+    const out=[];
+    for(const [path,entry] of Object.entries(zip.files)){
+      if(entry.dir||path.split("/").pop().startsWith(".")) continue;
+      const name=path.split("/").pop()||path;
+      const buf=await entry.async("arraybuffer");
+      out.push(new File([buf],name));
+    }
+    return out;
+  }catch(e){toast(`ZIP error: ${e.message||e}`);return [];}
+}
+
 /* ---------------- ingest orchestrator ---------------- */
 async function ingest(fileList){
-  const files=[...fileList];
+  let files=[...fileList];
   if(!files.length) return;
+
+  // expand ZIP archives
+  const expanded=[];
+  for(const f of files){
+    if(/\.zip$/i.test(f.name)||f.type==="application/zip"||f.type==="application/x-zip-compressed"){
+      toast("Extracting ZIP…","info");
+      const inner=await extractZip(f);
+      toast(`Extracted ${inner.length} file${inner.length!==1?"s":""} from ${f.name}`,"info");
+      expanded.push(...inner);
+    } else expanded.push(f);
+  }
+  files=expanded;
+  if(!files.length) return;
+
   const dicomFiles=[], tiffFiles=[], imgFiles=[], skipped=[];
   for(const f of files){
     if(await sniffDicom(f)) dicomFiles.push(f);
@@ -833,7 +881,7 @@ async function ingest(fileList){
     else if(f.type.startsWith("image/")) imgFiles.push(f);
     else skipped.push(f.name);
   }
-  if(skipped.length) toast(`Unrecognized format: ${skipped.slice(0,3).join(", ")}${skipped.length>3?"…":""}`);
+  if(skipped.length) toast(`Skipped ${skipped.length} unrecognized file${skipped.length!==1?"s":""}`);
   if(dicomFiles.length) await ingestDicom(dicomFiles);
   if(tiffFiles.length) await ingestTiff(tiffFiles);
   if(imgFiles.length) await ingestRaster(imgFiles);
@@ -1262,11 +1310,27 @@ $("btnCloseSeries").onclick=closeSeries;
 /* ---------------- drag / paste ---------------- */
 ["dragenter","dragover"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();stage.classList.add("drag");}));
 ["dragleave","drop"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==="dragleave"&&stage.contains(e.relatedTarget))return;stage.classList.remove("drag");}));
-stage.addEventListener("drop",e=>{if(e.dataTransfer?.files?.length) ingest(e.dataTransfer.files);});
+stage.addEventListener("drop",async e=>{
+  const items=[...(e.dataTransfer?.items||[])];
+  const hasDir=items.some(i=>i.kind==="file"&&i.webkitGetAsEntry?.()?.isDirectory);
+  if(hasDir){
+    const all=[];
+    for(const item of items){
+      if(item.kind!=="file") continue;
+      const entry=item.webkitGetAsEntry?.();
+      if(entry) all.push(...await collectFromEntry(entry));
+    }
+    if(all.length) ingest(all);
+  } else if(e.dataTransfer?.files?.length){
+    ingest(e.dataTransfer.files);
+  }
+});
 stage.addEventListener("click",()=>{if(!attachments.length)$("fileInput").click();});
 window.addEventListener("paste",e=>{const f=[...(e.clipboardData?.items||[])].filter(i=>i.type.startsWith("image/")).map(i=>i.getAsFile()).filter(Boolean);if(f.length){ingest(f);toast("Image pasted","info");}});
 $("fileInput").addEventListener("change",e=>{if(e.target.files.length)ingest(e.target.files);e.target.value="";});
+$("folderInput").addEventListener("change",e=>{if(e.target.files.length)ingest(e.target.files);e.target.value="";});
 $("btnAttach").addEventListener("click",()=>$("fileInput").click());
+$("btnFolder").addEventListener("click",()=>$("folderInput").click());
 
 /* ---------------- markdown helpers ---------------- */
 function esc(s){return String(s).replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));}
