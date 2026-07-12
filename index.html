@@ -887,10 +887,12 @@ async function ingest(fileList){
     else skipped.push(f.name);
   }
   if(skipped.length) toast(`Skipped ${skipped.length} unrecognized file${skipped.length!==1?"s":""}`);
-  if(dicomFiles.length) await ingestDicom(dicomFiles);
+  let dicomResult=null;
+  if(dicomFiles.length) dicomResult=await ingestDicom(dicomFiles);
   if(tiffFiles.length) await ingestTiff(tiffFiles);
   if(imgFiles.length) await ingestRaster(imgFiles);
   renderStrip(); renderStage(); refreshSend();
+  if(dicomResult) autoAnalyzeDicom(dicomResult.frames, dicomResult.meta);
 }
 async function ingestRaster(imgs){
   for(const f of imgs){
@@ -1091,6 +1093,59 @@ async function decodeJpegDicom(parsed){
   return {meta, frames};
 }
 
+/* ---------------- DICOM auto-analysis ---------------- */
+async function autoAnalyzeDicom(frames, meta){
+  if(!cfg.url||busy) return;
+
+  // Sample up to 5 evenly-spaced frames
+  const N=Math.min(frames.length, frames.length<=3?frames.length:5);
+  const sampled=N===frames.length
+    ? frames
+    : Array.from({length:N},(_,i)=>frames[Math.round(i*(frames.length-1)/(N-1))]);
+
+  const ww=series?.ww??meta.defaultWW??400;
+  const wc=series?.wc??meta.defaultWC??40;
+  const imgs=sampled.map(f=>{
+    const canvas=dicomFrameToCanvas(f.buf, f.meta||meta, ww, wc, false);
+    return canvas.toDataURL("image/png");
+  });
+
+  const modality=meta.modality||"DICOM";
+  const seriesDesc=meta.seriesDesc?` · ${meta.seriesDesc}`:"";
+  const sliceInfo=frames.length>1?` · ${frames.length} slices · ${N} representative frames shown`:" · single frame";
+  const prompt=`[Study loaded: ${modality}${seriesDesc}${sliceInfo}]\n\nPlease analyze this imaging study and provide:\n1. Modality and imaging technique\n2. Visible anatomy\n3. Findings and abnormalities\n4. Clinical impression`;
+
+  addMsg("user",prompt,imgs);
+  history.push({role:"user",text:prompt,images:imgs});
+
+  const botEl=addMsg("bot","",null);
+  const contentEl=botEl.querySelector(".content");
+  contentEl.innerHTML='<span class="cursor"></span>';
+  setBusy(true);
+  const t0=performance.now();
+  try{
+    const full=await callModel(txt=>{
+      contentEl.innerHTML=md(txt)+'<span class="cursor"></span>';
+      stream.scrollTop=stream.scrollHeight;
+    });
+    contentEl.innerHTML=md(full);
+    history.push({role:"assistant",text:full,images:[]});
+    finishBot(botEl,full,Math.round(performance.now()-t0));
+    saveCurrentSession();
+    updateHeader("ok");
+  }catch(err){
+    if(err.name==="AbortError"){
+      const cur=contentEl.textContent||"";
+      contentEl.innerHTML=md(cur)+' <em style="color:var(--ink-3)">— stopped</em>';
+    }else{
+      botEl.remove();
+      history.pop();
+      updateHeader("err");
+      toast(explainErr(err));
+    }
+  }finally{setBusy(false);controller=null;}
+}
+
 async function ingestDicom(files){
   if(!window.dicomParser){toast("DICOM support failed to load — check your internet connection.");return;}
   const parsed=[];
@@ -1106,19 +1161,27 @@ async function ingestDicom(files){
     }
   }
   if(!parsed.length) return;
+  let autoFrames, autoMeta;
   if(parsed.length===1 && parsed[0].frames.length>1){
     const meta=parsed[0].meta;
-    openSeries(meta, parsed[0].frames.map(buf=>({buf, meta})));
+    const frames=parsed[0].frames.map(buf=>({buf, meta}));
+    openSeries(meta, frames);
+    autoFrames=frames; autoMeta=meta;
   }else if(parsed.length>1){
     parsed.sort((a,b)=>{
       const ai=a.meta.instanceNumber, bi=b.meta.instanceNumber;
       if(ai!=null && bi!=null) return ai-bi;
       return a.meta.filename.localeCompare(b.meta.filename, undefined, {numeric:true});
     });
-    openSeries(parsed[0].meta, parsed.map(p=>({buf:p.frames[0], meta:p.meta})));
+    const frames=parsed.map(p=>({buf:p.frames[0], meta:p.meta}));
+    openSeries(parsed[0].meta, frames);
+    autoFrames=frames; autoMeta=parsed[0].meta;
   }else{
     attachSingleDicom(parsed[0].meta, parsed[0].frames[0]);
+    autoFrames=[{buf:parsed[0].frames[0], meta:parsed[0].meta}];
+    autoMeta=parsed[0].meta;
   }
+  return {frames:autoFrames, meta:autoMeta};
 }
 
 function attachSingleDicom(meta, buf){
