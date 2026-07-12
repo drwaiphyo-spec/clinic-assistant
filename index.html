@@ -892,7 +892,7 @@ async function ingest(fileList){
   if(tiffFiles.length) await ingestTiff(tiffFiles);
   if(imgFiles.length) await ingestRaster(imgFiles);
   renderStrip(); renderStage(); refreshSend();
-  if(dicomResult) autoAnalyzeDicom(dicomResult.frames, dicomResult.meta);
+  if(dicomResult) autoAnalyzeDicom(dicomResult.total, dicomResult.meta);
 }
 async function ingestRaster(imgs){
   for(const f of imgs){
@@ -1093,95 +1093,135 @@ async function decodeJpegDicom(parsed){
   return {meta, frames};
 }
 
+/* ---------------- lazy DICOM: metadata-only scan + on-demand frame decode ---------------- */
+// Fast scan: parse tags only up to pixel data (no pixel buffers allocated)
+async function parseDicomMetaOnly(file){
+  const byteArray=new Uint8Array(await readArrayBuffer(file));
+  let ds;
+  try{ ds=dicomParser.parseDicom(byteArray,{untilTag:'x7fe00010'}); }
+  catch(e){ throw new Error(`${file.name}: not a valid DICOM file`); }
+  const safe=(fn)=>{try{return fn();}catch(e){return undefined;}};
+  const modality=(ds.string('x00080060')||'').trim().toUpperCase();
+  const seriesDesc=(ds.string('x0008103e')||'').trim();
+  const instanceNumber=safe(()=>ds.intString('x00200013'))??null;
+  const rows=ds.uint16('x00280010')||0;
+  const cols=ds.uint16('x00280011')||0;
+  const bitsAllocated=ds.uint16('x00280100')||16;
+  const pixelRepresentation=ds.uint16('x00280103')||0;
+  const spp=ds.uint16('x00280002')||1;
+  const photometric=(ds.string('x00280004')||'MONOCHROME2').trim();
+  const planar=ds.uint16('x00280006')||0;
+  const slope=safe(()=>ds.floatString('x00281053'))??1;
+  const intercept=safe(()=>ds.floatString('x00281052'))??0;
+  let defaultWW=safe(()=>ds.floatString('x00281051'));
+  let defaultWC=safe(()=>ds.floatString('x00281050'));
+  if(defaultWW==null) defaultWW=modality==='CT'?400:255;
+  if(defaultWC==null) defaultWC=modality==='CT'?40:128;
+  return {_file:file, filename:file.name, modality, seriesDesc, instanceNumber,
+    rows, cols, bitsAllocated, pixelRepresentation, spp, photometric, planar,
+    slope, intercept, defaultWW, defaultWC};
+}
+
+// LRU cache for on-demand decoded frames: up to 60 frames (~30 MB for 512×512×16-bit)
+const FRAME_CACHE_MAX=60;
+let frameCache=new Map();
+
+async function seriesGetFrame(idx){
+  if(!series) return null;
+  // Eager path (single multi-frame file): frames already decoded
+  if(series.frames) return series.frames[idx];
+  // Lazy path: decode on demand
+  if(frameCache.has(idx)) return frameCache.get(idx);
+  const entry=series.lazyFiles[idx];
+  let parsed;
+  try{
+    parsed=parseDicomFile(await readArrayBuffer(entry._file), entry.filename);
+    if(parsed.needsAsyncDecode) parsed=await decodeJpegDicom(parsed);
+  }catch(e){ toast(`Slice ${idx+1}: ${(e&&e.message)||'decode error'}`); return null; }
+  const frame={buf:parsed.frames[0], meta:parsed.meta};
+  if(frameCache.size>=FRAME_CACHE_MAX) frameCache.delete(frameCache.keys().next().value);
+  frameCache.set(idx,frame);
+  return frame;
+}
+
 /* ---------------- DICOM auto-analysis ---------------- */
-async function autoAnalyzeDicom(frames, meta){
+async function autoAnalyzeDicom(total, meta){
   if(!cfg.url||busy) return;
-
-  // Sample up to 5 evenly-spaced frames
-  const N=Math.min(frames.length, frames.length<=3?frames.length:5);
-  const sampled=N===frames.length
-    ? frames
-    : Array.from({length:N},(_,i)=>frames[Math.round(i*(frames.length-1)/(N-1))]);
-
+  const N=Math.min(total, total<=3?total:5);
+  const indices=Array.from({length:N},(_,i)=>N===1?0:Math.round(i*(total-1)/(N-1)));
   const ww=series?.ww??meta.defaultWW??400;
   const wc=series?.wc??meta.defaultWC??40;
-  const imgs=sampled.map(f=>{
-    const canvas=dicomFrameToCanvas(f.buf, f.meta||meta, ww, wc, false);
-    return canvas.toDataURL("image/png");
-  });
-
+  const imgs=[];
+  for(const idx of indices){
+    const f=await seriesGetFrame(idx);
+    if(!f) continue;
+    imgs.push(dicomFrameToCanvas(f.buf,f.meta||meta,ww,wc,false).toDataURL("image/png"));
+  }
+  if(!imgs.length) return;
   const modality=meta.modality||"DICOM";
-  const seriesDesc=meta.seriesDesc?` · ${meta.seriesDesc}`:"";
-  const sliceInfo=frames.length>1?` · ${frames.length} slices · ${N} representative frames shown`:" · single frame";
-  const prompt=`[Study loaded: ${modality}${seriesDesc}${sliceInfo}]\n\nPlease analyze this imaging study and provide:\n1. Modality and imaging technique\n2. Visible anatomy\n3. Findings and abnormalities\n4. Clinical impression`;
-
+  const sd=meta.seriesDesc?` · ${meta.seriesDesc}`:"";
+  const sliceInfo=total>1?` · ${total} slices · ${imgs.length} representative frames shown`:" · single frame";
+  const prompt=`[Study loaded: ${modality}${sd}${sliceInfo}]\n\nPlease analyze this imaging study and provide:\n1. Modality and imaging technique\n2. Visible anatomy\n3. Findings and abnormalities\n4. Clinical impression`;
   addMsg("user",prompt,imgs);
   history.push({role:"user",text:prompt,images:imgs});
-
   const botEl=addMsg("bot","",null);
   const contentEl=botEl.querySelector(".content");
   contentEl.innerHTML='<span class="cursor"></span>';
-  setBusy(true);
-  const t0=performance.now();
+  setBusy(true); const t0=performance.now();
   try{
-    const full=await callModel(txt=>{
-      contentEl.innerHTML=md(txt)+'<span class="cursor"></span>';
-      stream.scrollTop=stream.scrollHeight;
-    });
+    const full=await callModel(txt=>{contentEl.innerHTML=md(txt)+'<span class="cursor"></span>';stream.scrollTop=stream.scrollHeight;});
     contentEl.innerHTML=md(full);
     history.push({role:"assistant",text:full,images:[]});
     finishBot(botEl,full,Math.round(performance.now()-t0));
-    saveCurrentSession();
-    updateHeader("ok");
+    saveCurrentSession(); updateHeader("ok");
   }catch(err){
-    if(err.name==="AbortError"){
-      const cur=contentEl.textContent||"";
-      contentEl.innerHTML=md(cur)+' <em style="color:var(--ink-3)">— stopped</em>';
-    }else{
-      botEl.remove();
-      history.pop();
-      updateHeader("err");
-      toast(explainErr(err));
-    }
+    if(err.name==="AbortError"){const cur=contentEl.textContent||"";contentEl.innerHTML=md(cur)+' <em style="color:var(--ink-3)">— stopped</em>';}
+    else{botEl.remove();history.pop();updateHeader("err");toast(explainErr(err));}
   }finally{setBusy(false);controller=null;}
 }
 
 async function ingestDicom(files){
   if(!window.dicomParser){toast("DICOM support failed to load — check your internet connection.");return;}
-  const parsed=[];
-  for(const f of files){
-    try{ parsed.push(parseDicomFile(await readArrayBuffer(f), f.name)); }
-    catch(e){ toast((e&&e.message)||("Couldn't parse "+f.name)); }
-  }
-  if(!parsed.length) return;
-  for(let i=0;i<parsed.length;i++){
-    if(parsed[i].needsAsyncDecode){
-      try{ parsed[i]=await decodeJpegDicom(parsed[i]); }
-      catch(e){ toast((e&&e.message)||("JPEG decode failed")); parsed.splice(i--,1); }
+
+  // Single file: eager full decode (handles multi-frame files like nuclear medicine)
+  if(files.length===1){
+    let parsed;
+    try{ parsed=parseDicomFile(await readArrayBuffer(files[0]),files[0].name); }
+    catch(e){ toast((e&&e.message)||"Couldn't parse DICOM file"); return; }
+    if(parsed.needsAsyncDecode){
+      try{ parsed=await decodeJpegDicom(parsed); }
+      catch(e){ toast((e&&e.message)||"JPEG decode failed"); return; }
+    }
+    if(parsed.frames.length>1){
+      const meta=parsed.meta;
+      const frames=parsed.frames.map(buf=>({buf,meta}));
+      openSeries(meta,frames);
+      return {total:frames.length, meta};
+    }else{
+      attachSingleDicom(parsed.meta,parsed.frames[0]);
+      return {total:1, meta:parsed.meta};
     }
   }
-  if(!parsed.length) return;
-  let autoFrames, autoMeta;
-  if(parsed.length===1 && parsed[0].frames.length>1){
-    const meta=parsed[0].meta;
-    const frames=parsed[0].frames.map(buf=>({buf, meta}));
-    openSeries(meta, frames);
-    autoFrames=frames; autoMeta=meta;
-  }else if(parsed.length>1){
-    parsed.sort((a,b)=>{
-      const ai=a.meta.instanceNumber, bi=b.meta.instanceNumber;
-      if(ai!=null && bi!=null) return ai-bi;
-      return a.meta.filename.localeCompare(b.meta.filename, undefined, {numeric:true});
-    });
-    const frames=parsed.map(p=>({buf:p.frames[0], meta:p.meta}));
-    openSeries(parsed[0].meta, frames);
-    autoFrames=frames; autoMeta=parsed[0].meta;
-  }else{
-    attachSingleDicom(parsed[0].meta, parsed[0].frames[0]);
-    autoFrames=[{buf:parsed[0].frames[0], meta:parsed[0].meta}];
-    autoMeta=parsed[0].meta;
+
+  // Multi-file: lazy load — metadata-only scan first, then decode on demand
+  const total=files.length;
+  $("seriesBar").classList.add("show");
+  $("seriesLbl").textContent=`Scanning DICOM files… 0 / ${total}`;
+  const lazyEntries=[];
+  const BATCH=30;
+  for(let i=0;i<total;i+=BATCH){
+    const batch=files.slice(i,i+BATCH);
+    const metas=await Promise.all(batch.map(f=>parseDicomMetaOnly(f).catch(()=>null)));
+    for(const m of metas) if(m) lazyEntries.push(m);
+    $("seriesLbl").textContent=`Scanning DICOM files… ${Math.min(i+BATCH,total)} / ${total}`;
   }
-  return {frames:autoFrames, meta:autoMeta};
+  if(!lazyEntries.length){$("seriesBar").classList.remove("show");toast("No readable DICOM files found.");return;}
+  lazyEntries.sort((a,b)=>{
+    if(a.instanceNumber!=null&&b.instanceNumber!=null) return a.instanceNumber-b.instanceNumber;
+    return a.filename.localeCompare(b.filename,undefined,{numeric:true});
+  });
+  openSeriesLazy(lazyEntries);
+  return {total:lazyEntries.length, meta:lazyEntries[0]};
 }
 
 function attachSingleDicom(meta, buf){
@@ -1196,38 +1236,51 @@ function attachSingleDicom(meta, buf){
   activeThumb=a.id;
 }
 /* ---------------- series scrubber (multi-slice CT/MRI) ---------------- */
-function openSeries(meta, frames){
-  resetVP();
-  series={meta, frames, index:Math.floor(frames.length/2), ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
+function _openSeriesCommon(meta, total, idx){
+  resetVP(); frameCache=new Map();
   $("seriesBar").classList.add("show");
-  $("seriesLbl").textContent=(meta.modality||"SERIES")+(meta.seriesDesc?" · "+meta.seriesDesc:"")+` · ${frames.length} slices`;
-  $("sliceSlider").min=0; $("sliceSlider").max=frames.length-1; $("sliceSlider").value=series.index;
+  $("seriesLbl").textContent=(meta.modality||"SERIES")+(meta.seriesDesc?" · "+meta.seriesDesc:"")+` · ${total} slices`;
+  $("sliceSlider").min=0; $("sliceSlider").max=total-1; $("sliceSlider").value=idx;
+}
+function openSeries(meta, frames){
+  const idx=Math.floor(frames.length/2);
+  series={meta, frames, total:frames.length, index:idx, ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
+  _openSeriesCommon(meta, frames.length, idx);
   renderSeriesFrame();
 }
-function renderSeriesFrame(){
+function openSeriesLazy(lazyFiles){
+  const meta=lazyFiles[0];
+  const idx=Math.floor(lazyFiles.length/2);
+  series={meta, lazyFiles, total:lazyFiles.length, index:idx, ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
+  _openSeriesCommon(meta, lazyFiles.length, idx);
+  renderSeriesFrame();
+}
+async function renderSeriesFrame(){
   if(!series) return;
-  const f=series.frames[series.index];
+  const f=await seriesGetFrame(series.index);
+  if(!f) return;
   const canvas=dicomFrameToCanvas(f.buf, f.meta, series.ww, series.wc, series.invert);
   stageImg.src=canvas.toDataURL("image/png");
   stageImg.style.display=""; stageEmpty.style.display="none";
   stage.classList.add("has-img");
   $("regDim").textContent=`${f.meta.cols}×${f.meta.rows}`;
   $("regName").textContent=(f.meta.modality||"DCM")+` · slice ${series.index+1}`;
-  $("sliceCount").textContent=`${series.index+1} / ${series.frames.length}`;
+  $("sliceCount").textContent=`${series.index+1} / ${series.total}`;
   $("sliceSlider").value=series.index;
   if(f.meta.isRgba) hideWLPanel();
   else showWLPanel(f.meta.modality, series.ww, series.wc, series.invert, f.meta.defaultWW, f.meta.defaultWC,
     (ww,wc,invert)=>{series.ww=ww;series.wc=wc;series.invert=invert;renderSeriesFrame();});
 }
 function closeSeries(){
-  series=null;
+  series=null; frameCache=new Map();
   $("seriesBar").classList.remove("show");
   renderStage();
 }
-function addSeriesSlice(){
+async function addSeriesSlice(){
   if(!series) return;
   if(attachments.length>=MAX_FILES){toast(`Up to ${MAX_FILES} images per turn.`);return;}
-  const f=series.frames[series.index];
+  const f=await seriesGetFrame(series.index);
+  if(!f) return;
   const canvas=dicomFrameToCanvas(f.buf, f.meta, series.ww, series.wc, series.invert);
   const {dataUrl,w,h}=canvasToDataUrl(canvas);
   const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
@@ -1237,22 +1290,24 @@ function addSeriesSlice(){
   renderStrip(); refreshSend();
   toast("Slice added to attachments","info");
 }
-function addSampleSlices(n){
+async function addSampleSlices(n){
   if(!series) return;
-  const total=series.frames.length;
+  const total=series.total;
   const count=Math.min(n, total, MAX_FILES-attachments.length);
   if(count<=0){toast(`Up to ${MAX_FILES} images per turn.`);return;}
+  toast("Sampling slices…","info");
   const step=total/(count+1);
   for(let i=1;i<=count;i++){
     const idx=Math.min(total-1, Math.round(step*i));
-    const f=series.frames[idx];
+    const f=await seriesGetFrame(idx);
+    if(!f) continue;
     const canvas=dicomFrameToCanvas(f.buf, f.meta, series.ww, series.wc, series.invert);
     const {dataUrl,w,h}=canvasToDataUrl(canvas);
     const bytes=Math.round((dataUrl.length-dataUrl.indexOf(",")-1)*0.75);
     attachments.push({id:uid(), name:`${f.meta.modality||"DCM"}-slice${idx+1}`, mime:"image/png", dataUrl, w, h, bytes,
       dicom:{buf:f.buf, meta:f.meta, ww:series.ww, wc:series.wc, invert:series.invert}});
   }
-  activeThumb=attachments[attachments.length-1].id;
+  activeThumb=attachments[attachments.length-1]?.id;
   renderStrip(); renderStage(); refreshSend();
   toast(`${count} slices added`,"info");
 }
@@ -1371,7 +1426,7 @@ function fmtBytes(b){return b<1024?b+" B":b<1048576?(b/1024).toFixed(1)+" KB":(b
 
 /* series scrubber controls */
 $("slicePrev").onclick=()=>{if(!series)return;series.index=Math.max(0,series.index-1);renderSeriesFrame();};
-$("sliceNext").onclick=()=>{if(!series)return;series.index=Math.min(series.frames.length-1,series.index+1);renderSeriesFrame();};
+$("sliceNext").onclick=()=>{if(!series)return;series.index=Math.min(series.total-1,series.index+1);renderSeriesFrame();};
 $("sliceSlider").oninput=(e)=>{if(!series)return;series.index=+e.target.value;renderSeriesFrame();};
 $("btnAddSlice").onclick=addSeriesSlice;
 $("btnAddSample").onclick=()=>addSampleSlices(5);
