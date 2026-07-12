@@ -97,11 +97,15 @@ input,textarea{font-family:inherit}
   position:relative;overflow:hidden;display:grid;place-items:center;min-height:0;
 }
 .stage.drag{border-color:var(--teal);box-shadow:inset 0 0 0 1px var(--teal),0 0 40px -10px var(--teal-ghost)}
-.stage-img{max-width:100%;max-height:100%;object-fit:contain;display:block;
-  filter:contrast(1.02);position:relative;z-index:1}
+.stage-img{display:block;filter:contrast(1.02);position:relative;z-index:1;
+  transform-origin:center center;will-change:transform;cursor:grab;user-select:none}
+.stage.panning .stage-img{cursor:grabbing}
+.stage:not(.has-img){cursor:default}
 .reg{position:absolute;font-family:var(--mono);font-size:10px;color:var(--ink-3);opacity:.75;z-index:3;pointer-events:none;letter-spacing:.08em}
 .reg.tr{top:14px;right:16px}
 .reg.bl{bottom:14px;left:16px}
+.reg.br{bottom:14px;right:16px;opacity:0;transition:opacity .25s}
+.stage.has-img .reg.br{opacity:.75}
 
 /* ---- autofocus reticle: signature element ----
    idle = locked teal bracket around the image; reading = brass, pulsing (camera hunting focus) */
@@ -420,6 +424,7 @@ input,textarea{font-family:inherit}
           </div>
           <h3>No image loaded</h3>
         </div>
+        <span class="reg br" id="zoomBadge">1×</span>
         <img class="stage-img" id="stageImg" style="display:none" alt="">
       </div>
 <div class="seriesbar" id="seriesBar">
@@ -1129,6 +1134,7 @@ function attachSingleDicom(meta, buf){
 }
 /* ---------------- series scrubber (multi-slice CT/MRI) ---------------- */
 function openSeries(meta, frames){
+  resetVP();
   series={meta, frames, index:Math.floor(frames.length/2), ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
   $("seriesBar").classList.add("show");
   $("seriesLbl").textContent=(meta.modality||"SERIES")+(meta.seriesDesc?" · "+meta.seriesDesc:"")+` · ${frames.length} slices`;
@@ -1280,6 +1286,7 @@ function renderStage(){
   const a=attachments.find(x=>x.id===activeThumb);
   stage.classList.toggle("has-img",!!a);
   if(a){
+    resetVP();
     stageImg.src=a.dataUrl; stageImg.style.display=""; stageEmpty.style.display="none";
     $("regDim").textContent=`${a.w}×${a.h}`;
     $("regName").textContent=(a.name.length>22?a.name.slice(0,20)+"…":a.name);
@@ -1307,6 +1314,89 @@ $("btnAddSlice").onclick=addSeriesSlice;
 $("btnAddSample").onclick=()=>addSampleSlices(5);
 $("btnCloseSeries").onclick=closeSeries;
 
+/* ---------------- viewport zoom / pan ---------------- */
+const vp={zoom:1,x:0,y:0,px:0,py:0,sx:0,sy:0,down:false,moved:false,t0:null,t0d:0};
+const zoomBadge=$("zoomBadge");
+
+function applyVP(){
+  stageImg.style.transform=`scale(${vp.zoom}) translate(${vp.x}px,${vp.y}px)`;
+  zoomBadge.textContent=vp.zoom===1?"1×":`${vp.zoom.toFixed(1)}×`;
+}
+function resetVP(){
+  vp.zoom=1;vp.x=0;vp.y=0;vp.down=false;vp.moved=false;
+  stageImg.style.transform="";
+  zoomBadge.textContent="1×";
+  stage.classList.remove("panning");
+}
+
+// scroll-to-zoom (centered on cursor)
+stage.addEventListener("wheel",e=>{
+  if(!stage.classList.contains("has-img"))return;
+  e.preventDefault();
+  const r=stage.getBoundingClientRect();
+  const cx=e.clientX-r.left-r.width/2;
+  const cy=e.clientY-r.top-r.height/2;
+  const factor=e.deltaY<0?1.15:1/1.15;
+  const nz=Math.min(Math.max(vp.zoom*factor,.25),12);
+  vp.x+=cx*(1/nz-1/vp.zoom);
+  vp.y+=cy*(1/nz-1/vp.zoom);
+  vp.zoom=nz;
+  applyVP();
+},{passive:false});
+
+// drag-to-pan
+stageImg.addEventListener("mousedown",e=>{
+  if(!stage.classList.contains("has-img"))return;
+  e.preventDefault();
+  vp.down=true;vp.moved=false;
+  vp.sx=e.clientX;vp.sy=e.clientY;
+  vp.px=vp.x;vp.py=vp.y;
+  stage.classList.add("panning");
+});
+window.addEventListener("mousemove",e=>{
+  if(!vp.down)return;
+  const dx=e.clientX-vp.sx, dy=e.clientY-vp.sy;
+  if(Math.abs(dx)+Math.abs(dy)>3) vp.moved=true;
+  vp.x=vp.px+dx/vp.zoom;
+  vp.y=vp.py+dy/vp.zoom;
+  applyVP();
+});
+window.addEventListener("mouseup",()=>{
+  vp.down=false;
+  stage.classList.remove("panning");
+});
+
+// double-click to reset
+stageImg.addEventListener("dblclick",e=>{e.preventDefault();resetVP();});
+
+// touch pinch-zoom
+stage.addEventListener("touchstart",e=>{
+  if(e.touches.length===2){
+    const [a,b]=e.touches;
+    vp.t0=[(a.clientX+b.clientX)/2,(a.clientY+b.clientY)/2];
+    vp.t0d=Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY);
+    vp.px=vp.x;vp.py=vp.y;
+    e.preventDefault();
+  }
+},{passive:false});
+stage.addEventListener("touchmove",e=>{
+  if(e.touches.length===2&&vp.t0){
+    const [a,b]=e.touches;
+    const d=Math.hypot(b.clientX-a.clientX,b.clientY-a.clientY);
+    const factor=d/vp.t0d;
+    const nz=Math.min(Math.max(vp.zoom*factor,.25),12);
+    const r=stage.getBoundingClientRect();
+    const cx=vp.t0[0]-r.left-r.width/2;
+    const cy=vp.t0[1]-r.top-r.height/2;
+    vp.x=vp.px+cx*(1/nz-1/vp.zoom);
+    vp.y=vp.py+cy*(1/nz-1/vp.zoom);
+    vp.zoom=nz;
+    applyVP();
+    e.preventDefault();
+  }
+},{passive:false});
+stage.addEventListener("touchend",()=>{vp.t0=null;});
+
 /* ---------------- drag / paste ---------------- */
 ["dragenter","dragover"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();stage.classList.add("drag");}));
 ["dragleave","drop"].forEach(ev=>stage.addEventListener(ev,e=>{e.preventDefault();if(ev==="dragleave"&&stage.contains(e.relatedTarget))return;stage.classList.remove("drag");}));
@@ -1325,7 +1415,7 @@ stage.addEventListener("drop",async e=>{
     ingest(e.dataTransfer.files);
   }
 });
-stage.addEventListener("click",()=>{if(!attachments.length)$("fileInput").click();});
+stage.addEventListener("click",()=>{if(vp.moved)return;if(!attachments.length)$("fileInput").click();});
 window.addEventListener("paste",e=>{const f=[...(e.clipboardData?.items||[])].filter(i=>i.type.startsWith("image/")).map(i=>i.getAsFile()).filter(Boolean);if(f.length){ingest(f);toast("Image pasted","info");}});
 $("fileInput").addEventListener("change",e=>{if(e.target.files.length)ingest(e.target.files);e.target.value="";});
 $("folderInput").addEventListener("change",e=>{if(e.target.files.length)ingest(e.target.files);e.target.value="";});
