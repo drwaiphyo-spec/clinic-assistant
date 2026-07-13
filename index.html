@@ -1145,9 +1145,21 @@ async function seriesGetFrame(idx){
 }
 
 /* ---------------- DICOM auto-analysis ---------------- */
+// Resize a canvas to max side = maxPx; returns same canvas if already small enough
+function resizeForModel(canvas, maxPx=448){
+  if(canvas.width<=maxPx && canvas.height<=maxPx) return canvas;
+  const scale=maxPx/Math.max(canvas.width,canvas.height);
+  const c2=document.createElement("canvas");
+  c2.width=Math.round(canvas.width*scale);
+  c2.height=Math.round(canvas.height*scale);
+  c2.getContext("2d").drawImage(canvas,0,0,c2.width,c2.height);
+  return c2;
+}
+
 async function autoAnalyzeDicom(total, meta){
   if(!cfg.url||busy) return;
-  const N=Math.min(total, total<=3?total:5);
+  // Use 3 frames: enough context without overwhelming the vision encoder
+  const N=Math.min(total, total===1?1:3);
   const indices=Array.from({length:N},(_,i)=>N===1?0:Math.round(i*(total-1)/(N-1)));
   const ww=series?.ww??meta.defaultWW??400;
   const wc=series?.wc??meta.defaultWC??40;
@@ -1155,12 +1167,13 @@ async function autoAnalyzeDicom(total, meta){
   for(const idx of indices){
     const f=await seriesGetFrame(idx);
     if(!f) continue;
-    imgs.push(dicomFrameToCanvas(f.buf,f.meta||meta,ww,wc,false).toDataURL("image/png"));
+    const canvas=resizeForModel(dicomFrameToCanvas(f.buf,f.meta||meta,ww,wc,false));
+    imgs.push(canvas.toDataURL("image/jpeg",0.88)); // JPEG keeps payload <100 KB/frame
   }
   if(!imgs.length) return;
   const modality=meta.modality||"DICOM";
   const sd=meta.seriesDesc?` · ${meta.seriesDesc}`:"";
-  const sliceInfo=total>1?` · ${total} slices · ${imgs.length} representative frames shown`:" · single frame";
+  const sliceInfo=total>1?` · ${total} slices · ${imgs.length} representative frames`:" · single frame";
   const prompt=`[Study loaded: ${modality}${sd}${sliceInfo}]\n\nPlease analyze this imaging study and provide:\n1. Modality and imaging technique\n2. Visible anatomy\n3. Findings and abnormalities\n4. Clinical impression`;
   addMsg("user",prompt,imgs);
   history.push({role:"user",text:prompt,images:imgs});
