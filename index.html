@@ -476,6 +476,9 @@ input,textarea{font-family:inherit}
           <button class="btn-sm" id="btnAddSlice">+ Add this slice</button>
           <button class="btn-sm ghost" id="btnAddSample">+ Sample 5 slices</button>
           <span class="spacer"></span>
+          <button class="btn-sm" id="btnAnalyzeStudy" title="Send representative frames from the whole study to the AI for analysis">
+            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" width="12" height="12" style="margin-right:4px;vertical-align:-1px"><circle cx="12" cy="12" r="10"/><path d="M12 8v4M12 16h.01"/></svg>Analyze study
+          </button>
           <button class="icon-btn-sm" id="btnCloseSeries" title="Close series" aria-label="Close series">
             <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18M6 6l12 12"/></svg>
           </button>
@@ -1302,22 +1305,33 @@ function resizeForModel(canvas, maxPx=448){
 
 async function autoAnalyzeDicom(total, meta){
   if(!cfg.url||busy) return;
-  // Use 3 frames: enough context without overwhelming the vision encoder
-  const N=Math.min(total, total===1?1:3);
-  const indices=Array.from({length:N},(_,i)=>N===1?0:Math.round(i*(total-1)/(N-1)));
   const ww=series?.ww??meta.defaultWW??400;
   const wc=series?.wc??meta.defaultWC??40;
   const imgs=[];
-  for(const idx of indices){
-    const f=await seriesGetFrame(idx);
-    if(!f) continue;
-    const canvas=resizeForModel(dicomFrameToCanvas(f.buf,f.meta||meta,ww,wc,false));
-    imgs.push(canvas.toDataURL("image/jpeg",0.88)); // JPEG keeps payload <100 KB/frame
+
+  if(series){
+    // Multi-frame series: sample 3 evenly-spaced representative frames
+    const N=Math.min(total, total===1?1:3);
+    const indices=Array.from({length:N},(_,i)=>N===1?0:Math.round(i*(total-1)/(N-1)));
+    for(const idx of indices){
+      const f=await seriesGetFrame(idx);
+      if(!f) continue;
+      const canvas=resizeForModel(dicomFrameToCanvas(f.buf,f.meta||meta,ww,wc,false));
+      imgs.push(canvas.toDataURL("image/jpeg",0.88));
+    }
+  } else {
+    // Single-frame DICOM: use the most recent DICOM attachment
+    const dcmA=attachments.filter(a=>a.dicom).slice(-1)[0];
+    if(dcmA){
+      const canvas=resizeForModel(dicomFrameToCanvas(dcmA.dicom.buf,dcmA.dicom.meta,dcmA.dicom.ww,dcmA.dicom.wc,dcmA.dicom.invert));
+      imgs.push(canvas.toDataURL("image/jpeg",0.88));
+    }
   }
-  if(!imgs.length) return;
+
+  if(!imgs.length){toast("No DICOM frames available for analysis.","warn");return;}
   const modality=meta.modality||"DICOM";
   const sd=meta.seriesDesc?` · ${meta.seriesDesc}`:"";
-  const sliceInfo=total>1?` · ${total} slices · ${imgs.length} representative frames`:" · single frame";
+  const sliceInfo=series&&series.total>1?` · ${series.total} slices · ${imgs.length} representative frames`:" · single frame";
   const prompt=`[Study loaded: ${modality}${sd}${sliceInfo}]\n\nPlease analyze this imaging study and provide:\n1. Modality and imaging technique\n2. Visible anatomy\n3. Findings and abnormalities\n4. Clinical impression`;
   addMsg("user",prompt,imgs);
   history.push({role:"user",text:prompt,images:imgs});
@@ -1594,6 +1608,7 @@ $("sliceSlider").oninput=(e)=>{if(!series)return;series.index=+e.target.value;re
 $("btnAddSlice").onclick=addSeriesSlice;
 $("btnAddSample").onclick=()=>addSampleSlices(5);
 $("btnCloseSeries").onclick=closeSeries;
+$("btnAnalyzeStudy").onclick=()=>{if(series)autoAnalyzeDicom(series.total,series.meta);};
 
 /* ---------------- viewport zoom / pan ---------------- */
 const vp={zoom:1,x:0,y:0,px:0,py:0,sx:0,sy:0,down:false,moved:false,t0:null,t0d:0};
