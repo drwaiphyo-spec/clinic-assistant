@@ -188,6 +188,38 @@ input,textarea{font-family:inherit}
 .dicom-tag{display:inline-block;font-family:var(--mono);font-size:9.5px;letter-spacing:.05em;color:var(--ink-3);
   border:1px solid var(--line-2);border-radius:5px;padding:1px 5px;margin-left:6px}
 
+/* ---- plane badge + orientation labels ---- */
+.plane-badge{position:absolute;top:12px;left:14px;font-family:var(--mono);font-size:9.5px;letter-spacing:.14em;
+  text-transform:uppercase;color:var(--teal);background:rgba(9,13,15,.72);border:1px solid rgba(63,209,190,.2);
+  padding:2px 7px;border-radius:5px;opacity:0;z-index:4;pointer-events:none;transition:opacity .25s}
+.stage.has-img .plane-badge{opacity:1}
+.orient-lbl{position:absolute;font-family:var(--mono);font-size:11px;font-weight:600;letter-spacing:.1em;
+  color:rgba(63,209,190,.9);text-shadow:0 0 8px rgba(63,209,190,.45),0 1px 3px rgba(0,0,0,.8);
+  opacity:0;z-index:4;pointer-events:none;transition:opacity .25s}
+.stage.has-img .orient-lbl{opacity:1}
+.ol-top{top:10px;left:50%;transform:translateX(-50%)}
+.ol-bottom{bottom:10px;left:50%;transform:translateX(-50%)}
+.ol-left{left:10px;top:50%;transform:translateY(-50%)}
+.ol-right{right:10px;top:50%;transform:translateY(-50%)}
+
+/* ---- nav filmstrip (key-frame thumbnail navigation) ---- */
+.nav-panel{display:none;margin:8px 18px 0;padding:7px 8px;background:var(--panel);
+  border:1px solid var(--line);border-radius:var(--radius-sm);overflow-x:auto;overflow-y:hidden;
+  scrollbar-width:thin;scrollbar-color:var(--line-2) transparent;gap:5px;align-items:center}
+.nav-panel.show{display:flex}
+.nav-panel::-webkit-scrollbar{height:4px}
+.nav-panel::-webkit-scrollbar-track{background:transparent}
+.nav-panel::-webkit-scrollbar-thumb{background:var(--line-2);border-radius:2px}
+.nav-thumb{flex-shrink:0;width:52px;height:52px;border-radius:6px;border:1.5px solid var(--line);
+  overflow:hidden;cursor:pointer;position:relative;background:#000;
+  display:flex;flex-direction:column;align-items:stretch;transition:border-color .14s}
+.nav-thumb:hover{border-color:var(--teal-dim)}
+.nav-thumb.active{border-color:var(--teal);box-shadow:0 0 0 1px var(--teal),0 0 10px rgba(63,209,190,.25)}
+.nav-thumb canvas{width:100%;height:100%;display:block;object-fit:contain}
+.nav-thumb .nav-idx{position:absolute;bottom:0;left:0;right:0;text-align:center;
+  font-family:var(--mono);font-size:7.5px;color:rgba(255,255,255,.55);background:rgba(0,0,0,.55);
+  padding:1px 0;pointer-events:none;line-height:1.4}
+
 /* ---- filmstrip ---- */
 .strip{padding:12px 18px 6px;display:flex;gap:9px;overflow-x:auto;flex-wrap:wrap}
 .thumb{position:relative;width:58px;height:58px;border-radius:9px;overflow:hidden;
@@ -411,6 +443,11 @@ input,textarea{font-family:inherit}
         <div class="vp-count" id="vpCount"></div>
       </div>
       <div class="stage" id="stage">
+        <span class="plane-badge" id="planeBadge"></span>
+        <span class="orient-lbl ol-top" id="orientTop"></span>
+        <span class="orient-lbl ol-bottom" id="orientBottom"></span>
+        <span class="orient-lbl ol-left" id="orientLeft"></span>
+        <span class="orient-lbl ol-right" id="orientRight"></span>
         <span class="reg tr" id="regDim"></span>
         <span class="reg bl" id="regName"></span>
         <div class="reticle" id="reticle">
@@ -444,6 +481,8 @@ input,textarea{font-family:inherit}
           </button>
         </div>
       </div>
+
+      <div class="nav-panel" id="navPanel"></div>
 
       <div class="wlpanel" id="wlPanel">
         <div class="wlpanel-head">
@@ -1061,7 +1100,10 @@ function parseDicomFile(arrayBuffer, filename){
     const off=base+pdEl.dataOffset+i*frameSize;
     frames.push(ds.byteArray.buffer.slice(off, off+frameSize));
   }
-  const meta={rows,cols,spp,bitsAllocated,pixelRepresentation,photometric,planar,slope,intercept,modality,seriesDesc,instanceNumber,filename};
+  const orientStr2=(ds.string('x00200037')||'').trim();
+  let imageOrientation=null;
+  if(orientStr2){const p=orientStr2.split('\\').map(Number);if(p.length===6&&p.every(v=>!isNaN(v)))imageOrientation=p;}
+  const meta={rows,cols,spp,bitsAllocated,pixelRepresentation,photometric,planar,slope,intercept,modality,seriesDesc,instanceNumber,filename,imageOrientation};
   if(!ww||!wc){
     if(spp===1){
       const raw = bitsAllocated===8 ? new Uint8Array(frames[0])
@@ -1117,9 +1159,12 @@ async function parseDicomMetaOnly(file){
   let defaultWC=safe(()=>ds.floatString('x00281050'));
   if(defaultWW==null) defaultWW=modality==='CT'?400:255;
   if(defaultWC==null) defaultWC=modality==='CT'?40:128;
+  const orientStr=safe(()=>ds.string('x00200037'))||'';
+  let imageOrientation=null;
+  if(orientStr){const p=orientStr.split('\\').map(Number);if(p.length===6&&p.every(v=>!isNaN(v)))imageOrientation=p;}
   return {_file:file, filename:file.name, modality, seriesDesc, instanceNumber,
     rows, cols, bitsAllocated, pixelRepresentation, spp, photometric, planar,
-    slope, intercept, defaultWW, defaultWC};
+    slope, intercept, defaultWW, defaultWC, imageOrientation};
 }
 
 // LRU cache for on-demand decoded frames: up to 60 frames (~30 MB for 512×512×16-bit)
@@ -1142,6 +1187,105 @@ async function seriesGetFrame(idx){
   if(frameCache.size>=FRAME_CACHE_MAX) frameCache.delete(frameCache.keys().next().value);
   frameCache.set(idx,frame);
   return frame;
+}
+
+/* ------------ plane detection + orientation labels ------------ */
+// LPS axes: +X=Left, +Y=Posterior, +Z=Superior
+const _LPS_POS=['L','P','S'], _LPS_NEG=['R','A','I'];
+function _dominantLabel(vec){
+  let max=0,idx=0,sign=1;
+  for(let i=0;i<3;i++){const v=Math.abs(vec[i]);if(v>max){max=v;idx=i;sign=Math.sign(vec[i]||1);}}
+  return sign>0?_LPS_POS[idx]:_LPS_NEG[idx];
+}
+const _OPP={L:'R',R:'L',A:'P',P:'A',S:'I',I:'S'};
+function computePlaneMeta(meta){
+  const ior=meta&&meta.imageOrientation;
+  if(!ior||ior.length!==6) return {plane:'',top:'',bottom:'',left:'',right:''};
+  const r=[ior[0],ior[1],ior[2]], c=[ior[3],ior[4],ior[5]];
+  // normal = r × c
+  const n=[r[1]*c[2]-r[2]*c[1], r[2]*c[0]-r[0]*c[2], r[0]*c[1]-r[1]*c[0]];
+  const [ax,ay,az]=[Math.abs(n[0]),Math.abs(n[1]),Math.abs(n[2])];
+  let plane='OBLIQUE';
+  if(Math.max(ax,ay,az)>=0.66){
+    if(az>=ax&&az>=ay) plane='AXIAL';
+    else if(ax>=ay) plane='SAGITTAL';
+    else plane='CORONAL';
+  }
+  const right=_dominantLabel(r);   // +row direction → right edge
+  const bottom=_dominantLabel(c);  // +col direction → bottom edge
+  return {plane, right, left:_OPP[right], bottom, top:_OPP[bottom]};
+}
+
+function updatePlaneOverlay(meta){
+  const {plane,top,bottom,left,right}=computePlaneMeta(meta);
+  $('planeBadge').textContent=plane;
+  $('orientTop').textContent=top;
+  $('orientBottom').textContent=bottom;
+  $('orientLeft').textContent=left;
+  $('orientRight').textContent=right;
+}
+
+function clearPlaneOverlay(){
+  ['planeBadge','orientTop','orientBottom','orientLeft','orientRight'].forEach(id=>{$(id).textContent='';});
+}
+
+/* ------------ nav panel (key-frame thumbnail filmstrip) ------------ */
+const NAV_THUMB_COUNT=12;
+
+async function buildNavPanel(){
+  const panel=$('navPanel');
+  panel.innerHTML=''; panel.classList.remove('show');
+  if(!series||series.total<2) return;
+
+  const count=Math.min(NAV_THUMB_COUNT,series.total);
+  panel.classList.add('show');
+
+  const items=[]; // {btn, sliceIdx}
+  for(let i=0;i<count;i++){
+    const sliceIdx=count===1?0:Math.round(i*(series.total-1)/(count-1));
+    const btn=document.createElement('button');
+    btn.className='nav-thumb'; btn.title=`Slice ${sliceIdx+1}`; btn.dataset.idx=String(sliceIdx);
+    btn.onclick=()=>navJumpTo(sliceIdx);
+    const lbl=document.createElement('span'); lbl.className='nav-idx'; lbl.textContent=sliceIdx+1;
+    btn.appendChild(lbl);
+    panel.appendChild(btn);
+    items.push({btn,sliceIdx});
+  }
+  updateNavHighlight();
+
+  // Render thumbnails lazily so the panel is responsive immediately
+  for(const {btn,sliceIdx} of items){
+    const f=await seriesGetFrame(sliceIdx);
+    if(!f) continue;
+    const big=dicomFrameToCanvas(f.buf,f.meta||series.meta,series.ww,series.wc,series.invert);
+    const tc=document.createElement('canvas'); tc.width=52; tc.height=52;
+    const tctx=tc.getContext('2d');
+    const sc=Math.min(52/big.width,52/big.height);
+    const dw=big.width*sc, dh=big.height*sc;
+    tctx.drawImage(big,(52-dw)/2,(52-dh)/2,dw,dh);
+    btn.insertBefore(tc, btn.querySelector('.nav-idx'));
+  }
+}
+
+function navJumpTo(idx){
+  if(!series) return;
+  series.index=Math.max(0,Math.min(series.total-1,idx));
+  renderSeriesFrame();
+}
+
+function updateNavHighlight(){
+  const thumbs=[...document.querySelectorAll('.nav-thumb')];
+  if(!thumbs.length||!series) return;
+  let closest=null, minDist=Infinity;
+  thumbs.forEach(btn=>{
+    const d=Math.abs(+btn.dataset.idx-series.index);
+    btn.classList.remove('active');
+    if(d<minDist){minDist=d;closest=btn;}
+  });
+  if(closest){
+    closest.classList.add('active');
+    closest.scrollIntoView({behavior:'smooth',block:'nearest',inline:'nearest'});
+  }
 }
 
 /* ---------------- DICOM auto-analysis ---------------- */
@@ -1260,6 +1404,7 @@ function openSeries(meta, frames){
   series={meta, frames, total:frames.length, index:idx, ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
   _openSeriesCommon(meta, frames.length, idx);
   renderSeriesFrame();
+  buildNavPanel();
 }
 function openSeriesLazy(lazyFiles){
   const meta=lazyFiles[0];
@@ -1267,6 +1412,7 @@ function openSeriesLazy(lazyFiles){
   series={meta, lazyFiles, total:lazyFiles.length, index:idx, ww:meta.defaultWW, wc:meta.defaultWC, invert:false};
   _openSeriesCommon(meta, lazyFiles.length, idx);
   renderSeriesFrame();
+  buildNavPanel();
 }
 async function renderSeriesFrame(){
   if(!series) return;
@@ -1280,6 +1426,8 @@ async function renderSeriesFrame(){
   $("regName").textContent=(f.meta.modality||"DCM")+` · slice ${series.index+1}`;
   $("sliceCount").textContent=`${series.index+1} / ${series.total}`;
   $("sliceSlider").value=series.index;
+  updatePlaneOverlay(f.meta||series.meta);
+  updateNavHighlight();
   if(f.meta.isRgba) hideWLPanel();
   else showWLPanel(f.meta.modality, series.ww, series.wc, series.invert, f.meta.defaultWW, f.meta.defaultWC,
     (ww,wc,invert)=>{series.ww=ww;series.wc=wc;series.invert=invert;renderSeriesFrame();});
@@ -1287,6 +1435,8 @@ async function renderSeriesFrame(){
 function closeSeries(){
   series=null; frameCache=new Map();
   $("seriesBar").classList.remove("show");
+  $("navPanel").classList.remove("show"); $("navPanel").innerHTML="";
+  clearPlaneOverlay();
   renderStage();
 }
 async function addSeriesSlice(){
